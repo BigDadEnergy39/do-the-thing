@@ -101,6 +101,11 @@ export function TaskCard({ task, onComplete, onPress }) {
                 }]}>{task.displayLabel}</Text>
               </View>
             )}
+            {task.duration_intent ? (
+              <View style={styles.durationChip}>
+                <Text style={styles.durationText}>~{task.duration_intent}m</Text>
+              </View>
+            ) : null}
           </View>
           <Text style={styles.title}>{task.title}</Text>
           {task.notes ? <Text style={styles.notes} numberOfLines={2}>{task.notes}</Text> : null}
@@ -193,6 +198,17 @@ const styles = StyleSheet.create({
   labelText: {
     fontSize: 11,
     fontWeight: '700',
+  },
+  durationChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    backgroundColor: '#88888822',
+  },
+  durationText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#888',
   },
   checkBtn: {
     justifyContent: 'center',

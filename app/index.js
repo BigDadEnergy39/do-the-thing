@@ -63,12 +63,19 @@ export default function TodayScreen() {
 
         {/* Main task list */}
         {visibleMain.map(item => (
-          <TaskCard
-            key={item.id}
-            task={item}
-            onComplete={handleComplete}
-            onPress={(t) => router.push(`/task/${t.id}`)}
-          />
+          item.has_timer
+            ? <TimedGoalCard
+                key={item.id}
+                task={item}
+                onComplete={handleComplete}
+                onPress={(t) => router.push(`/task/${t.id}`)}
+              />
+            : <TaskCard
+                key={item.id}
+                task={item}
+                onComplete={handleComplete}
+                onPress={(t) => router.push(`/task/${t.id}`)}
+              />
         ))}
 
         {/* Timed goals section */}
@@ -102,12 +109,19 @@ export default function TodayScreen() {
               </Text>
             </TouchableOpacity>
             {backlogExpanded && visibleBacklog.map(item => (
-              <TaskCard
-                key={item.id}
-                task={item}
-                onComplete={handleComplete}
-                onPress={(t) => router.push(`/task/${t.id}`)}
-              />
+              item.has_timer
+                ? <TimedGoalCard
+                    key={item.id}
+                    task={item}
+                    onComplete={handleComplete}
+                    onPress={(t) => router.push(`/task/${t.id}`)}
+                  />
+                : <TaskCard
+                    key={item.id}
+                    task={item}
+                    onComplete={handleComplete}
+                    onPress={(t) => router.push(`/task/${t.id}`)}
+                  />
             ))}
           </View>
         )}

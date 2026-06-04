@@ -103,6 +103,10 @@ function initDbSync(db) {
     `ALTER TABLE tasks ADD COLUMN auto_hide_after_skips INTEGER`,
     `ALTER TABLE tasks ADD COLUMN skip_count INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE tasks ADD COLUMN last_skip_date TEXT`,
+    // Timer support: any task type can have an optional timer + time goal
+    `ALTER TABLE tasks ADD COLUMN has_timer INTEGER NOT NULL DEFAULT 0`,
+    // Duration intent: soft "I plan to spend ~N minutes on this" label
+    `ALTER TABLE tasks ADD COLUMN duration_intent INTEGER`,
   ];
   for (const sql of migrations) {
     try { db.execSync(sql); } catch (_) { /* column already exists */ }

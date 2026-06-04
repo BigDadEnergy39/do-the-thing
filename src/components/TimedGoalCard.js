@@ -1,18 +1,33 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import {
+  View, Text, TouchableOpacity, StyleSheet, Animated,
+  Modal, TextInput,
+} from 'react-native';
 import {
   startTimedSession, endTimedSession,
   getActiveTimedSession, getTodayTimedSeconds, getWeekTimedSeconds,
+  recordCompletion,
 } from '../db/tasks';
 import { COLORS } from './theme';
 
-export function TimedGoalCard({ task, onPress }) {
+/**
+ * Used for two task types:
+ *   task_type === 'timed_goal'  — always visible, no checkmark, accumulates time
+ *   any type with has_timer     — scheduled task with timer; checkmark marks it done
+ */
+export function TimedGoalCard({ task, onComplete, onPress }) {
   const isWeekly = task.goal_reset === 'weekly';
+  const hasCheckmark = task.task_type !== 'timed_goal'; // recurring+timer tasks can be marked done
+
   const [timerRunning, setTimerRunning] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [baseSeconds, setBaseSeconds] = useState(0);
   const [elapsedSecs, setElapsedSecs] = useState(0);
+  const [manualModalVisible, setManualModalVisible] = useState(false);
+  const [manualMinutes, setManualMinutes] = useState('');
+  const [manualSeconds, setManualSeconds] = useState('');
   const intervalRef = useRef(null);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     const logged = isWeekly
@@ -24,7 +39,9 @@ export function TimedGoalCard({ task, onPress }) {
     if (active) {
       setSessionId(active.id);
       setTimerRunning(true);
-      const elapsed = Math.floor((Date.now() - new Date(active.started_at).getTime()) / 1000);
+      const elapsed = Math.floor(
+        (Date.now() - new Date(active.started_at).getTime()) / 1000
+      );
       setElapsedSecs(elapsed);
     }
     return () => clearInterval(intervalRef.current);
@@ -53,6 +70,35 @@ export function TimedGoalCard({ task, onPress }) {
     }
   };
 
+  const handleManualAdd = () => {
+    const mins = parseInt(manualMinutes) || 0;
+    const secs = parseInt(manualSeconds) || 0;
+    const total = mins * 60 + secs;
+    if (total > 0) {
+      recordCompletion(task.id, null, total);
+      setBaseSeconds(s => s + total);
+    }
+    setManualMinutes('');
+    setManualSeconds('');
+    setManualModalVisible(false);
+  };
+
+  const handleComplete = () => {
+    // Stop any running timer first, capture the seconds
+    let finalSecs = baseSeconds + elapsedSecs;
+    if (timerRunning && sessionId) {
+      const secs = endTimedSession(sessionId);
+      finalSecs = baseSeconds + secs;
+      setTimerRunning(false);
+    }
+    Animated.timing(fadeAnim, {
+      toValue: 0, duration: 300, useNativeDriver: true,
+    }).start(() => {
+      recordCompletion(task.id, task.due_date ?? null, finalSecs);
+      onComplete?.(task.id);
+    });
+  };
+
   const totalSecs = baseSeconds + elapsedSecs;
   const goalSecs = (task.goal_minutes ?? 0) * 60;
   const pct = goalSecs > 0 ? Math.min(1, totalSecs / goalSecs) : 0;
@@ -70,14 +116,20 @@ export function TimedGoalCard({ task, onPress }) {
   const catColor = task.category_color ?? COLORS.primary;
 
   return (
-    <View style={[styles.card, timerRunning && styles.cardActive]}>
+    <Animated.View style={[styles.card, timerRunning && styles.cardActive, { opacity: fadeAnim }]}>
       <View style={[styles.accentBar, { backgroundColor: timerRunning ? COLORS.success : catColor }]} />
 
       <TouchableOpacity style={styles.body} onPress={() => onPress?.(task)} activeOpacity={0.7}>
-        <View style={styles.titleRow}>
+        {/* Chips row */}
+        <View style={styles.chipsRow}>
           {task.category_name && (
             <View style={[styles.catChip, { backgroundColor: catColor + '33' }]}>
               <Text style={[styles.catText, { color: catColor }]}>{task.category_name}</Text>
+            </View>
+          )}
+          {task.displayLabel && (
+            <View style={[styles.labelChip, { backgroundColor: '#4a90d922' }]}>
+              <Text style={[styles.labelText, { color: COLORS.primary }]}>{task.displayLabel}</Text>
             </View>
           )}
           {goalMet && (
@@ -86,6 +138,7 @@ export function TimedGoalCard({ task, onPress }) {
             </View>
           )}
         </View>
+
         <Text style={styles.title}>{task.title}</Text>
 
         {/* Progress bar */}
@@ -98,13 +151,16 @@ export function TimedGoalCard({ task, onPress }) {
           </View>
         )}
 
+        {/* Timer row */}
         <View style={styles.timerRow}>
-          <Text style={styles.timerText}>
-            {formatTime(totalSecs)}
+          <View>
+            <Text style={styles.timerText}>{formatTime(totalSecs)}</Text>
             {task.goal_minutes ? (
-              <Text style={styles.goalText}> / {task.goal_minutes}m {periodLabel}</Text>
+              <Text style={styles.goalText}>
+                goal: {task.goal_minutes}m {periodLabel}
+              </Text>
             ) : null}
-          </Text>
+          </View>
           <TouchableOpacity
             style={[styles.timerBtn, timerRunning && styles.timerBtnActive]}
             onPress={handleToggleTimer}
@@ -113,7 +169,75 @@ export function TimedGoalCard({ task, onPress }) {
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
-    </View>
+
+      {/* Right-side action column */}
+      <View style={styles.actionCol}>
+        {/* Manual time entry — always available on timed cards */}
+        <TouchableOpacity style={styles.addTimeBtn} onPress={() => setManualModalVisible(true)}>
+          <Text style={styles.addTimeBtnText}>+</Text>
+        </TouchableOpacity>
+
+        {/* Checkmark — only for recurring+timer tasks, not pure timed goals */}
+        {hasCheckmark && (
+          <TouchableOpacity style={styles.checkBtn} onPress={handleComplete}>
+            <View style={styles.checkCircle}>
+              <Text style={styles.checkMark}>✓</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Manual minutes modal */}
+      <Modal visible={manualModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Add Time Manually</Text>
+            <Text style={styles.modalSubtitle}>
+              How much time would you like to log?
+            </Text>
+            <View style={styles.timeInputRow}>
+              <View style={styles.timeInputBlock}>
+                <TextInput
+                  style={styles.modalInput}
+                  value={manualMinutes}
+                  onChangeText={setManualMinutes}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor="#aaa"
+                  autoFocus
+                  maxLength={3}
+                />
+                <Text style={styles.timeInputLabel}>min</Text>
+              </View>
+              <Text style={styles.timeSeparator}>:</Text>
+              <View style={styles.timeInputBlock}>
+                <TextInput
+                  style={styles.modalInput}
+                  value={manualSeconds}
+                  onChangeText={setManualSeconds}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor="#aaa"
+                  maxLength={2}
+                />
+                <Text style={styles.timeInputLabel}>sec</Text>
+              </View>
+            </View>
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancel}
+                onPress={() => { setManualMinutes(''); setManualSeconds(''); setManualModalVisible(false); }}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalConfirm} onPress={handleManualAdd}>
+                <Text style={styles.modalConfirmText}>Add</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </Animated.View>
   );
 }
 
@@ -137,21 +261,102 @@ const styles = StyleSheet.create({
   },
   accentBar: { width: 4 },
   body: { flex: 1, padding: 14 },
-  titleRow: { flexDirection: 'row', gap: 6, marginBottom: 4, flexWrap: 'wrap' },
+  chipsRow: { flexDirection: 'row', gap: 6, marginBottom: 4, flexWrap: 'wrap' },
   title: { fontSize: 16, fontWeight: '600', color: '#1a1a2e', marginBottom: 10 },
   catChip: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   catText: { fontSize: 11, fontWeight: '600' },
-  goalMetChip: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: COLORS.success + '22' },
+  labelChip: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  labelText: { fontSize: 11, fontWeight: '700' },
+  goalMetChip: {
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
+    backgroundColor: COLORS.success + '22',
+  },
   goalMetText: { fontSize: 11, fontWeight: '700', color: COLORS.success },
-  barBg: { height: 4, backgroundColor: '#eee', borderRadius: 2, marginBottom: 10, overflow: 'hidden' },
+  barBg: {
+    height: 4, backgroundColor: '#eee', borderRadius: 2,
+    marginBottom: 10, overflow: 'hidden',
+  },
   barFill: { height: '100%', borderRadius: 2 },
-  timerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  timerText: { fontSize: 18, fontWeight: '700', color: '#1a1a2e', fontVariant: ['tabular-nums'] },
-  goalText: { fontSize: 13, fontWeight: '400', color: COLORS.subtext },
+  timerRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  timerText: {
+    fontSize: 18, fontWeight: '700', color: '#1a1a2e',
+    fontVariant: ['tabular-nums'],
+  },
+  goalText: { fontSize: 12, color: COLORS.subtext, marginTop: 2 },
   timerBtn: {
     paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
     backgroundColor: COLORS.success + '22',
   },
   timerBtnActive: { backgroundColor: '#e74c3c22' },
   timerBtnText: { fontSize: 14, fontWeight: '600', color: '#333' },
+  actionCol: {
+    justifyContent: 'space-evenly',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  addTimeBtn: {
+    width: 32, height: 32, borderRadius: 16,
+    borderWidth: 2, borderColor: COLORS.primary + '66',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  addTimeBtnText: {
+    fontSize: 20, color: COLORS.primary,
+    fontWeight: '300', lineHeight: 24,
+  },
+  checkBtn: { justifyContent: 'center' },
+  checkCircle: {
+    width: 32, height: 32, borderRadius: 16,
+    borderWidth: 2, borderColor: '#ddd',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  checkMark: { fontSize: 16, color: COLORS.success, fontWeight: '700' },
+  // Modal
+  modalOverlay: {
+    flex: 1, backgroundColor: '#00000066',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  modalBox: {
+    backgroundColor: '#fff', borderRadius: 16,
+    padding: 24, width: '80%', elevation: 8,
+  },
+  modalTitle: {
+    fontSize: 17, fontWeight: '700', color: COLORS.text, marginBottom: 6,
+  },
+  modalSubtitle: {
+    fontSize: 14, color: COLORS.subtext, marginBottom: 16,
+  },
+  timeInputRow: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 8, marginBottom: 20,
+  },
+  timeInputBlock: { flex: 1, alignItems: 'center' },
+  timeInputLabel: {
+    fontSize: 12, color: COLORS.subtext,
+    fontWeight: '600', marginTop: 4,
+  },
+  timeSeparator: {
+    fontSize: 28, fontWeight: '300',
+    color: COLORS.subtext, paddingBottom: 18,
+  },
+  modalInput: {
+    backgroundColor: '#f4f6fb', borderRadius: 10, padding: 14,
+    fontSize: 24, fontWeight: '600', color: COLORS.text,
+    borderWidth: 1, borderColor: COLORS.border,
+    textAlign: 'center', width: '100%',
+  },
+  modalBtnRow: { flexDirection: 'row', gap: 12 },
+  modalCancel: {
+    flex: 1, padding: 12, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.border, alignItems: 'center',
+  },
+  modalCancelText: { fontSize: 15, color: COLORS.subtext, fontWeight: '600' },
+  modalConfirm: {
+    flex: 1, padding: 12, borderRadius: 10,
+    backgroundColor: COLORS.primary, alignItems: 'center',
+  },
+  modalConfirmText: { fontSize: 15, color: '#fff', fontWeight: '700' },
 });

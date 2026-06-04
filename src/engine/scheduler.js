@@ -162,6 +162,14 @@ export function buildDailyList() {
 
   for (const task of allTasks) {
     const last = getLastCompletion(task.id);
+
+    // ── Timed goals: always show, never filtered by completion ────────────
+    // Completion records for timed goals are time logs, not "done" markers.
+    if (task.task_type === 'timed_goal') {
+      timedGoals.push({ ...task, effectivePriority: task.base_priority, score: 0, overdueDays: 0, daysUntilDue: null, displayLabel: null, completedToday: false });
+      continue;
+    }
+
     const completedToday = wasCompletedToday(last, today);
     if (completedToday) continue;
 
@@ -170,12 +178,6 @@ export function buildDailyList() {
     let overdueDays = 0;
     let daysUntilDue = null;
     let displayLabel = null;
-
-    // ── Timed goals: always show ──────────────────────────────────────────
-    if (task.task_type === 'timed_goal') {
-      timedGoals.push({ ...task, effectivePriority: task.base_priority, score: 0, overdueDays: 0, daysUntilDue: null, displayLabel: null, completedToday: false });
-      continue;
-    }
 
     // ── Unscheduled ───────────────────────────────────────────────────────
     if (task.task_type === 'unscheduled') {

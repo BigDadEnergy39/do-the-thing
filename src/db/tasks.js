@@ -31,8 +31,9 @@ export function createTask(task) {
       rand_min_days, rand_max_days, rand_persistent, rand_next_date,
       anchor_date, anchor_year, anchor_label,
       goal_minutes, goal_reset,
-      notification_config, auto_escalate_days, auto_hide_after_skips
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      notification_config, auto_escalate_days, auto_hide_after_skips,
+      has_timer, duration_intent
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       task.title,
       task.notes ?? null,
@@ -59,6 +60,8 @@ export function createTask(task) {
       task.notification_config ? JSON.stringify(task.notification_config) : null,
       task.auto_escalate_days ?? 14,
       task.auto_hide_after_skips ?? null,
+      task.has_timer ? 1 : 0,
+      task.duration_intent ?? null,
     ]
   );
   return result.lastInsertRowId;
@@ -75,6 +78,7 @@ export function updateTask(id, fields) {
     'goal_minutes','goal_reset','notification_config',
     'auto_escalate_days','auto_hide_after_skips',
     'skip_count','last_skip_date','is_active',
+    'has_timer','duration_intent',
   ];
   const keys = Object.keys(fields).filter(k => allowed.includes(k));
   if (!keys.length) return;

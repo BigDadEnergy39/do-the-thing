@@ -15,7 +15,7 @@ const TASK_TYPES = [
   { key: 'recurring', label: 'Recurring', desc: 'Repeats on a schedule' },
   { key: 'randomized', label: 'Randomized', desc: 'Every 2–4 weeks, random day' },
   { key: 'date_anchor', label: 'Important Date', desc: 'Birthday, anniversary, etc.' },
-  { key: 'timed_goal', label: 'Timed Goal', desc: 'Track time spent (e.g., practice guitar)' },
+  { key: 'timed_goal', label: 'Timed Goal', desc: 'Unscheduled habit — track time with no fixed days (e.g., practice guitar)' },
 ];
 
 const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -50,6 +50,8 @@ export default function AddTaskScreen() {
   const [anchorLeadDays, setAnchorLeadDays] = useState('42');
   const [goalMinutes, setGoalMinutes] = useState('30');
   const [goalReset, setGoalReset] = useState('daily');
+  const [hasTimer, setHasTimer] = useState(false);
+  const [durationIntent, setDurationIntent] = useState('');
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
 
@@ -79,6 +81,8 @@ export default function AddTaskScreen() {
       setAnchorLeadDays(String(task.escalate_days_out ?? 42));
       setGoalMinutes(String(task.goal_minutes ?? 30));
       setGoalReset(task.goal_reset ?? 'daily');
+      setHasTimer(!!task.has_timer);
+      setDurationIntent(task.duration_intent ? String(task.duration_intent) : '');
       if (task.recur_rule) {
         try {
           const rule = JSON.parse(task.recur_rule);
@@ -136,9 +140,11 @@ export default function AddTaskScreen() {
       rand_next_date: randNextDate,
       anchor_date: taskType === 'date_anchor' ? anchorDate || null : null,
       anchor_label: taskType === 'date_anchor' ? anchorLabel || null : null,
-      goal_minutes: taskType === 'timed_goal' ? Number(goalMinutes) : null,
+      goal_minutes: taskType === 'timed_goal' ? Number(goalMinutes) : (hasTimer && goalMinutes ? Number(goalMinutes) : null),
       goal_reset: goalReset,
       auto_hide_after_skips: autoHideAfterSkips ? Number(autoHideAfterSkips) : null,
+      has_timer: hasTimer,
+      duration_intent: durationIntent ? Number(durationIntent) : null,
     };
 
     if (isEditing) updateTask(Number(editId), taskData);
@@ -239,6 +245,27 @@ export default function AddTaskScreen() {
           <Text style={styles.label}>Auto-hide after N skips (optional)</Text>
           <Text style={styles.sublabel}>If skipped this many times in a row, steps back until next occurrence. Leave blank to always show.</Text>
           <TextInput style={styles.input} value={autoHideAfterSkips} onChangeText={setAutoHideAfterSkips} keyboardType="numeric" placeholder="e.g. 3" placeholderTextColor="#aaa" />
+          <SwitchRow
+            label="Track time"
+            desc="Add a start/stop timer and optional minute goal to this task"
+            value={hasTimer}
+            onChange={setHasTimer}
+          />
+          {hasTimer && (
+            <>
+              <Text style={styles.label}>Minute goal (optional)</Text>
+              <Text style={styles.sublabel}>e.g. 150 for 150 min/week of cardio</Text>
+              <TextInput style={styles.input} value={goalMinutes} onChangeText={setGoalMinutes} keyboardType="numeric" placeholder="e.g. 150" placeholderTextColor="#aaa" />
+              <Text style={styles.label}>Goal period</Text>
+              <View style={styles.segmentRow}>
+                {['daily','weekly'].map(t => (
+                  <TouchableOpacity key={t} style={[styles.segBtn, goalReset === t && styles.segBtnActive]} onPress={() => setGoalReset(t)}>
+                    <Text style={[styles.segText, goalReset === t && styles.segTextActive]}>{t.charAt(0).toUpperCase() + t.slice(1)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
         </>
       )}
 
@@ -280,6 +307,22 @@ export default function AddTaskScreen() {
               </TouchableOpacity>
             ))}
           </View>
+        </>
+      )}
+
+      {/* Duration intent — available on all task types */}
+      {taskType !== 'timed_goal' && (
+        <>
+          <Text style={styles.label}>Estimated time (optional)</Text>
+          <Text style={styles.sublabel}>Soft commitment — shows as "~Xm" on the card. Not tracked, just a reminder.</Text>
+          <TextInput
+            style={styles.input}
+            value={durationIntent}
+            onChangeText={setDurationIntent}
+            keyboardType="numeric"
+            placeholder="e.g. 90"
+            placeholderTextColor="#aaa"
+          />
         </>
       )}
 
