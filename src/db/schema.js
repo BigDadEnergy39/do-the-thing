@@ -1,14 +1,24 @@
 import * as SQLite from 'expo-sqlite';
 
 let _db = null;
+let _initialized = false;
 
 export function getDb() {
-  if (!_db) _db = SQLite.openDatabaseSync('dothethinig.db');
+  if (!_db) {
+    _db = SQLite.openDatabaseSync('dothethinig.db');
+  }
+  if (!_initialized) {
+    _initialized = true;
+    initDbSync(_db);
+  }
   return _db;
 }
 
 export async function initDb() {
-  const db = getDb();
+  getDb(); // triggers initDbSync if not already run
+}
+
+function initDbSync(db) {
 
   // Initial schema
   db.execSync(`
