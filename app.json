@@ -18,7 +18,8 @@
         "android.permission.USE_EXACT_ALARM",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE"
-      ]
+      ],
+      "package": "com.bigdadenergy39.DoTheThing"
     },
     "plugins": [
       "expo-router",

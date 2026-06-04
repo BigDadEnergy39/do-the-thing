@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, ScrollView, StyleSheet, TouchableOpacity,
-  Switch, Alert, Modal,
+  Switch, Alert, Modal, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { DatePickerField } from '../src/components/DatePickerField';
+import { TimePickerField } from '../src/components/TimePickerField';
 import { createTask, updateTask, getTaskById } from '../src/db/tasks';
 import { advanceRandomizedTask } from '../src/engine/scheduler';
 import { getAllCategories } from '../src/db/categories';
@@ -47,7 +49,10 @@ export default function AddTaskScreen() {
   const [randPersistent, setRandPersistent] = useState(false);
   const [anchorDate, setAnchorDate] = useState('');
   const [anchorLabel, setAnchorLabel] = useState('');
-  const [anchorLeadDays, setAnchorLeadDays] = useState('42');
+  // Each action item: { id, description, leadAmount, leadUnit, priority }
+  const [anchorActions, setAnchorActions] = useState([
+    { id: 1, description: '', leadAmount: '6', leadUnit: 'weeks', priority: 3 },
+  ]);
   const [goalMinutes, setGoalMinutes] = useState('30');
   const [goalReset, setGoalReset] = useState('daily');
   const [hasTimer, setHasTimer] = useState(false);
@@ -78,7 +83,18 @@ export default function AddTaskScreen() {
       setRandPersistent(!!task.rand_persistent);
       setAnchorDate(task.anchor_date ?? '');
       setAnchorLabel(task.anchor_label ?? '');
-      setAnchorLeadDays(String(task.escalate_days_out ?? 42));
+      // Convert stored days back to a friendly unit for display
+      const storedDays = task.escalate_days_out ?? 42;
+      if (storedDays % 30 === 0) {
+        setAnchorLeadAmount(String(storedDays / 30));
+        setAnchorLeadUnit('months');
+      } else if (storedDays % 7 === 0) {
+        setAnchorLeadAmount(String(storedDays / 7));
+        setAnchorLeadUnit('weeks');
+      } else {
+        setAnchorLeadAmount(String(storedDays));
+        setAnchorLeadUnit('days');
+      }
       setGoalMinutes(String(task.goal_minutes ?? 30));
       setGoalReset(task.goal_reset ?? 'daily');
       setHasTimer(!!task.has_timer);
@@ -101,8 +117,63 @@ export default function AddTaskScreen() {
     setRecurDays(prev => prev.includes(dow) ? prev.filter(d => d !== dow) : [...prev, dow]);
   };
 
+  // Convert "YYYY-MM-DD" string ↔ Date object
+  const strToDate = (str) => {
+    if (!str) return null;
+    const [y, m, d] = str.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  };
+  const dateToStr = (date) => {
+    if (!date) return '';
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  // Convert "MM-DD" string ↔ Date object (uses current year, year ignored)
+  const monthDayToDate = (str) => {
+    if (!str) return null;
+    const [m, d] = str.split('-').map(Number);
+    return new Date(new Date().getFullYear(), m - 1, d);
+  };
+  const dateToMonthDay = (date) => {
+    if (!date) return '';
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${m}-${d}`;
+  };
+
+  const leadToDays = (amount, unit) => {
+    const n = Number(amount) || 0;
+    if (unit === 'months') return n * 30;
+    if (unit === 'weeks') return n * 7;
+    return n;
+  };
+
+  const daysToUnit = (days) => {
+    if (days % 30 === 0 && days > 0) return { amount: String(days / 30), unit: 'months' };
+    if (days % 7 === 0 && days > 0) return { amount: String(days / 7), unit: 'weeks' };
+    return { amount: String(days), unit: 'days' };
+  };
+
+  const addAnchorAction = () => {
+    setAnchorActions(prev => [
+      ...prev,
+      { id: Date.now(), description: '', leadAmount: '0', leadUnit: 'days', priority: 2 },
+    ]);
+  };
+
+  const removeAnchorAction = (id) => {
+    setAnchorActions(prev => prev.filter(a => a.id !== id));
+  };
+
+  const updateAnchorAction = (id, field, value) => {
+    setAnchorActions(prev => prev.map(a => a.id === id ? { ...a, [field]: value } : a));
+  };
+
   const handleSave = () => {
-    if (!title.trim()) { Alert.alert('Missing Title', 'Please enter a task title.'); return; }
+    if (taskType !== 'date_anchor' && !title.trim()) { Alert.alert('Missing Title', 'Please enter a task title.'); return; }
 
     let recurRule = null;
     if (taskType === 'recurring') {
@@ -130,7 +201,7 @@ export default function AddTaskScreen() {
       auto_escalate_days: Number(autoEscalateDays) || 14,
       due_date: taskType === 'deadline' ? dueDate || null : null,
       due_time: taskType === 'deadline' ? dueTime || null : null,
-      escalate_days_out: taskType === 'deadline' ? Number(escalateDays) : Number(anchorLeadDays),
+      escalate_days_out: Number(escalateDays),
       escalate_to_priority: escalatePriority,
       recur_rule: recurRule,
       recur_persistent: recurPersistent,
@@ -138,8 +209,8 @@ export default function AddTaskScreen() {
       rand_max_days: Number(randMax),
       rand_persistent: randPersistent,
       rand_next_date: randNextDate,
-      anchor_date: taskType === 'date_anchor' ? anchorDate || null : null,
-      anchor_label: taskType === 'date_anchor' ? anchorLabel || null : null,
+      anchor_date: null,
+      anchor_label: null,
       goal_minutes: taskType === 'timed_goal' ? Number(goalMinutes) : (hasTimer && goalMinutes ? Number(goalMinutes) : null),
       goal_reset: goalReset,
       auto_hide_after_skips: autoHideAfterSkips ? Number(autoHideAfterSkips) : null,
@@ -147,12 +218,37 @@ export default function AddTaskScreen() {
       duration_intent: durationIntent ? Number(durationIntent) : null,
     };
 
-    if (isEditing) updateTask(Number(editId), taskData);
-    else createTask(taskData);
+    if (taskType === 'date_anchor') {
+      // Create one task per action item
+      if (!anchorDate) { Alert.alert('Missing Date', 'Please enter the event date (MM-DD).'); return; }
+      const validActions = anchorActions.filter(a => a.description.trim());
+      if (!validActions.length) { Alert.alert('Missing Action', 'Add at least one action for this date.'); return; }
+      for (const action of validActions) {
+        createTask({
+          ...taskData,
+          title: action.description.trim(),
+          task_type: 'date_anchor',
+          base_priority: action.priority,
+          priority_ceiling: action.priority,
+          anchor_date: anchorDate,
+          anchor_label: anchorLabel || anchorDate,
+          escalate_days_out: leadToDays(action.leadAmount, action.leadUnit),
+        });
+      }
+    } else if (isEditing) {
+      updateTask(Number(editId), taskData);
+    } else {
+      createTask(taskData);
+    }
     router.back();
   };
 
   return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+      keyboardVerticalOffset={80}
+    >
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
       <Text style={styles.label}>Task Type</Text>
@@ -195,11 +291,19 @@ export default function AddTaskScreen() {
       {/* ── Deadline ── */}
       {taskType === 'deadline' && (
         <>
-          <Text style={styles.label}>Due Date (YYYY-MM-DD)</Text>
-          <TextInput style={styles.input} value={dueDate} onChangeText={setDueDate} placeholder="2025-12-31" placeholderTextColor="#aaa" />
-          <Text style={styles.label}>Due Time (optional, HH:MM)</Text>
-          <Text style={styles.sublabel}>Set a time and this task floats to the top of the list today.</Text>
-          <TextInput style={styles.input} value={dueTime} onChangeText={setDueTime} placeholder="15:00" placeholderTextColor="#aaa" keyboardType="numbers-and-punctuation" />
+          <DatePickerField
+            label="Due Date"
+            value={strToDate(dueDate)}
+            onChange={d => setDueDate(dateToStr(d))}
+            placeholder="Pick a date"
+          />
+          <TimePickerField
+            label="Due Time (optional)"
+            value={dueTime || null}
+            onChange={setDueTime}
+            placeholder="No specific time"
+          />
+          <Text style={styles.sublabel}>Setting a time makes this task float to the top of the list as it approaches.</Text>
           <Text style={styles.label}>Escalate priority when within N days</Text>
           <TextInput style={styles.input} value={escalateDays} onChangeText={setEscalateDays} keyboardType="numeric" placeholder="14" placeholderTextColor="#aaa" />
           <Text style={styles.label}>Escalate to priority</Text>
@@ -285,12 +389,79 @@ export default function AddTaskScreen() {
       {/* ── Date Anchor ── */}
       {taskType === 'date_anchor' && (
         <>
-          <Text style={styles.label}>Annual Date (MM-DD)</Text>
-          <TextInput style={styles.input} value={anchorDate} onChangeText={setAnchorDate} placeholder="03-15" placeholderTextColor="#aaa" />
+          <DatePickerField
+            label="Annual Date"
+            value={monthDayToDate(anchorDate)}
+            onChange={d => setAnchorDate(dateToMonthDay(d))}
+            placeholder="Pick a date (year ignored)"
+            monthDayOnly
+          />
           <Text style={styles.label}>Event Label</Text>
           <TextInput style={styles.input} value={anchorLabel} onChangeText={setAnchorLabel} placeholder="Jim's Birthday" placeholderTextColor="#aaa" />
-          <Text style={styles.label}>Lead time reminder (days before)</Text>
-          <TextInput style={styles.input} value={anchorLeadDays} onChangeText={setAnchorLeadDays} keyboardType="numeric" placeholder="42" placeholderTextColor="#aaa" />
+
+          <Text style={styles.label}>Actions</Text>
+          <Text style={styles.sublabel}>Add one action per thing you need to do for this event.</Text>
+
+          {anchorActions.map((action, index) => (
+            <View key={action.id} style={styles.actionCard}>
+              <View style={styles.actionCardHeader}>
+                <Text style={styles.actionCardTitle}>Action {index + 1}</Text>
+                {anchorActions.length > 1 && (
+                  <TouchableOpacity onPress={() => removeAnchorAction(action.id)}>
+                    <Text style={styles.actionRemove}>Remove</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <Text style={styles.actionLabel}>What to do</Text>
+              <TextInput
+                style={styles.input}
+                value={action.description}
+                onChangeText={v => updateAnchorAction(action.id, 'description', v)}
+                placeholder="e.g. Buy a gift, Send a text, Make a call"
+                placeholderTextColor="#aaa"
+              />
+
+              <Text style={styles.actionLabel}>When to remind me</Text>
+              <View style={styles.leadTimeRow}>
+                <TextInput
+                  style={[styles.input, styles.leadTimeInput]}
+                  value={action.leadAmount}
+                  onChangeText={v => updateAnchorAction(action.id, 'leadAmount', v)}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor="#aaa"
+                />
+                <View style={styles.leadUnitRow}>
+                  {['days', 'weeks', 'months'].map(unit => (
+                    <TouchableOpacity
+                      key={unit}
+                      style={[styles.segBtn, action.leadUnit === unit && styles.segBtnActive]}
+                      onPress={() => updateAnchorAction(action.id, 'leadUnit', unit)}
+                    >
+                      <Text style={[styles.segText, action.leadUnit === unit && styles.segTextActive]}>
+                        {unit}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+              {action.leadAmount === '0' || action.leadAmount === '' ? (
+                <Text style={styles.sublabel}>On the day itself</Text>
+              ) : null}
+
+              <Text style={styles.actionLabel}>Priority</Text>
+              <PriorityRow
+                value={action.priority}
+                onChange={v => updateAnchorAction(action.id, 'priority', v)}
+                options={[1, 2, 3, 4]}
+              />
+            </View>
+          ))}
+
+          <TouchableOpacity style={styles.addActionBtn} onPress={addAnchorAction}>
+            <Text style={styles.addActionBtnText}>+ Add Another Action</Text>
+          </TouchableOpacity>
         </>
       )}
 
@@ -369,6 +540,7 @@ export default function AddTaskScreen() {
         </View>
       </Modal>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -420,6 +592,25 @@ const styles = StyleSheet.create({
   dowBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   dowText: { fontSize: 11, fontWeight: '600', color: COLORS.subtext },
   dowTextActive: { color: '#fff' },
+  leadTimeRow: { gap: 8 },
+  leadTimeInput: { marginBottom: 8 },
+  leadUnitRow: { flexDirection: 'row', gap: 8 },
+  actionCard: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 14,
+    marginBottom: 12, borderWidth: 1, borderColor: COLORS.border,
+  },
+  actionCardHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 10,
+  },
+  actionCardTitle: { fontSize: 13, fontWeight: '700', color: COLORS.subtext, textTransform: 'uppercase', letterSpacing: 0.6 },
+  actionRemove: { fontSize: 13, color: '#e74c3c', fontWeight: '600' },
+  actionLabel: { fontSize: 12, fontWeight: '700', color: COLORS.subtext, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 10, marginBottom: 6 },
+  addActionBtn: {
+    borderWidth: 1.5, borderColor: COLORS.primary, borderStyle: 'dashed',
+    borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 4,
+  },
+  addActionBtnText: { color: COLORS.primary, fontWeight: '600', fontSize: 15 },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', borderRadius: 10, padding: 14, marginTop: 16, borderWidth: 1, borderColor: COLORS.border },
   switchLabelBlock: { flex: 1, marginRight: 12 },
   switchLabel: { fontSize: 15, fontWeight: '600', color: COLORS.text },
@@ -429,11 +620,11 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: '#00000066', justifyContent: 'flex-end' },
   modalSheet: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40 },
   modalTitle: { fontSize: 18, fontWeight: '700', color: COLORS.text, marginBottom: 16 },
-  modalOption: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 10, marginBottom: 6, backgroundColor: '#f8f8f8' },
+  modalOption: { flexDirection: 'column', padding: 14, borderRadius: 10, marginBottom: 6, backgroundColor: '#f8f8f8' },
   modalOptionSelected: { backgroundColor: COLORS.primary + '22', borderWidth: 1, borderColor: COLORS.primary },
-  modalOptTitle: { fontSize: 16, fontWeight: '600', color: COLORS.text },
+  modalOptTitle: { fontSize: 16, fontWeight: '600', color: COLORS.text, marginBottom: 2 },
   modalOptDesc: { fontSize: 13, color: COLORS.subtext },
-  catDot: { width: 12, height: 12, borderRadius: 6 },
+  catDot: { width: 12, height: 12, borderRadius: 6, marginRight: 2 },
   modalCancel: { padding: 14, alignItems: 'center', marginTop: 8 },
   modalCancelText: { fontSize: 16, color: COLORS.subtext },
 });

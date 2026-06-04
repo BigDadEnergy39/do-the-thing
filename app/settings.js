@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { getAllCategories, createCategory, updateCategory, deleteCategory } from '../src/db/categories';
+import { TimePickerField } from '../src/components/TimePickerField';
 import { getSetting, setSetting, getAllSettings } from '../src/db/settings';
 import { PERSONA_OPTIONS } from '../src/components/CoachText';
 import { scheduleCoachingNotifications } from '../src/notifications/notificationService';
@@ -128,14 +129,10 @@ export default function SettingsScreen() {
       ].map(({ key, label }) => (
         <View key={key} style={styles.timeRow}>
           <Text style={styles.timeLabel}>{label}</Text>
-          <TextInput
-            style={styles.timeInput}
-            value={settings[key] ?? ''}
-            onChangeText={v => updateSetting(key, v)}
-            placeholder="HH:MM"
-            placeholderTextColor="#aaa"
-            keyboardType="numbers-and-punctuation"
-            maxLength={5}
+          <TimePickerField
+            value={settings[key] ?? null}
+            onChange={v => updateSetting(key, v)}
+            placeholder="Set time"
           />
         </View>
       ))}
@@ -246,15 +243,10 @@ const styles = StyleSheet.create({
 
   // Timing
   timeRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    flexDirection: 'column',
     backgroundColor: '#fff', borderRadius: 10, padding: 14, marginBottom: 8,
   },
-  timeLabel: { fontSize: 14, color: COLORS.text, flex: 1 },
-  timeInput: {
-    width: 72, textAlign: 'center', fontSize: 16, fontWeight: '600',
-    color: COLORS.text, backgroundColor: '#f4f6fb', borderRadius: 8,
-    padding: 8, borderWidth: 1, borderColor: COLORS.border,
-  },
+  timeLabel: { fontSize: 14, color: COLORS.text, fontWeight: '500', marginBottom: 8 },
   applyBtn: {
     backgroundColor: COLORS.primary, borderRadius: 10,
     padding: 14, alignItems: 'center', marginTop: 8, marginBottom: 4,
