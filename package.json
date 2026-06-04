@@ -3,10 +3,18 @@
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
+    "@react-native-async-storage/async-storage": "^3.1.1",
     "expo": "~56.0.8",
+    "expo-background-fetch": "^56.0.16",
+    "expo-notifications": "^56.0.15",
+    "expo-router": "^56.2.8",
+    "expo-sqlite": "^56.0.4",
     "expo-status-bar": "~56.0.4",
+    "expo-task-manager": "^56.0.16",
     "react": "19.2.3",
-    "react-native": "0.85.3"
+    "react-native": "0.85.3",
+    "react-native-safe-area-context": "^5.8.0",
+    "react-native-screens": "^4.25.2"
   },
   "scripts": {
     "start": "expo start",
