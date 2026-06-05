@@ -107,6 +107,8 @@ function initDbSync(db) {
     `ALTER TABLE tasks ADD COLUMN has_timer INTEGER NOT NULL DEFAULT 0`,
     // Duration intent: soft "I plan to spend ~N minutes on this" label
     `ALTER TABLE tasks ADD COLUMN duration_intent INTEGER`,
+    // Preferred time of day: 'morning' | 'afternoon' | 'evening' | null
+    `ALTER TABLE tasks ADD COLUMN preferred_time TEXT`,
   ];
   for (const sql of migrations) {
     try { db.execSync(sql); } catch (_) { /* column already exists */ }

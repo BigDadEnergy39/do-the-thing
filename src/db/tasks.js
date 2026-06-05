@@ -78,7 +78,7 @@ export function updateTask(id, fields) {
     'goal_minutes','goal_reset','notification_config',
     'auto_escalate_days','auto_hide_after_skips',
     'skip_count','last_skip_date','is_active',
-    'has_timer','duration_intent',
+    'has_timer','duration_intent','preferred_time',
   ];
   const keys = Object.keys(fields).filter(k => allowed.includes(k));
   if (!keys.length) return;

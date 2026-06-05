@@ -106,6 +106,13 @@ export function TaskCard({ task, onComplete, onPress }) {
                 <Text style={styles.durationText}>~{task.duration_intent}m</Text>
               </View>
             ) : null}
+            {task.preferred_time ? (
+              <View style={[styles.timeChip, styles[`timeChip_${task.preferred_time}`]]}>
+                <Text style={[styles.timeChipText, styles[`timeChipText_${task.preferred_time}`]]}>
+                  {task.preferred_time === 'morning' ? 'Morning' : task.preferred_time === 'afternoon' ? 'Afternoon' : 'Evening'}
+                </Text>
+              </View>
+            ) : null}
           </View>
           <Text style={styles.title}>{task.title}</Text>
           {task.notes ? <Text style={styles.notes} numberOfLines={2}>{task.notes}</Text> : null}
@@ -210,6 +217,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#888',
   },
+  timeChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  timeChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  timeChip_morning:   { backgroundColor: '#e8f4fd' },
+  timeChip_afternoon: { backgroundColor: '#fef9e7' },
+  timeChip_evening:   { backgroundColor: '#f4ecf7' },
+  timeChipText_morning:   { color: '#2980b9' },
+  timeChipText_afternoon: { color: '#d68910' },
+  timeChipText_evening:   { color: '#8e44ad' },
   checkBtn: {
     justifyContent: 'center',
     paddingHorizontal: 14,

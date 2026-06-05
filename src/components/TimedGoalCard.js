@@ -143,6 +143,13 @@ export function TimedGoalCard({ task, onComplete, onPress }) {
                 <Text style={[styles.labelText, { color: COLORS.primary }]}>{task.displayLabel}</Text>
               </View>
             )}
+            {task.preferred_time && (
+              <View style={[styles.timeChip, styles[`timeChip_${task.preferred_time}`]]}>
+                <Text style={[styles.timeChipText, styles[`timeChipText_${task.preferred_time}`]]}>
+                  {task.preferred_time === 'morning' ? 'Morning' : task.preferred_time === 'afternoon' ? 'Afternoon' : 'Evening'}
+                </Text>
+              </View>
+            )}
             {goalMet && (
               <View style={styles.goalMetChip}>
                 <Text style={styles.goalMetText}>Goal met ✓</Text>
@@ -289,6 +296,14 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.success + '22',
   },
   goalMetText: { fontSize: 11, fontWeight: '700', color: COLORS.success },
+  timeChip: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  timeChipText: { fontSize: 11, fontWeight: '600' },
+  timeChip_morning:   { backgroundColor: '#e8f4fd' },
+  timeChip_afternoon: { backgroundColor: '#fef9e7' },
+  timeChip_evening:   { backgroundColor: '#f4ecf7' },
+  timeChipText_morning:   { color: '#2980b9' },
+  timeChipText_afternoon: { color: '#d68910' },
+  timeChipText_evening:   { color: '#8e44ad' },
   barBg: {
     height: 4, backgroundColor: '#eee', borderRadius: 2,
     marginBottom: 10, overflow: 'hidden',

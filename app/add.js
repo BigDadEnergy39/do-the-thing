@@ -57,6 +57,7 @@ export default function AddTaskScreen() {
   const [goalReset, setGoalReset] = useState('daily');
   const [hasTimer, setHasTimer] = useState(false);
   const [durationIntent, setDurationIntent] = useState('');
+  const [preferredTime, setPreferredTime] = useState(null);
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
 
@@ -83,22 +84,22 @@ export default function AddTaskScreen() {
       setRandPersistent(!!task.rand_persistent);
       setAnchorDate(task.anchor_date ?? '');
       setAnchorLabel(task.anchor_label ?? '');
-      // Convert stored days back to a friendly unit for display
-      const storedDays = task.escalate_days_out ?? 42;
-      if (storedDays % 30 === 0) {
-        setAnchorLeadAmount(String(storedDays / 30));
-        setAnchorLeadUnit('months');
-      } else if (storedDays % 7 === 0) {
-        setAnchorLeadAmount(String(storedDays / 7));
-        setAnchorLeadUnit('weeks');
-      } else {
-        setAnchorLeadAmount(String(storedDays));
-        setAnchorLeadUnit('days');
+      // Populate anchorActions from the single task being edited
+      if (task.task_type === 'date_anchor') {
+        const { amount, unit } = daysToUnit(task.escalate_days_out ?? 42);
+        setAnchorActions([{
+          id: 1,
+          description: task.title,
+          leadAmount: amount,
+          leadUnit: unit,
+          priority: task.base_priority,
+        }]);
       }
       setGoalMinutes(String(task.goal_minutes ?? 30));
       setGoalReset(task.goal_reset ?? 'daily');
       setHasTimer(!!task.has_timer);
       setDurationIntent(task.duration_intent ? String(task.duration_intent) : '');
+      setPreferredTime(task.preferred_time ?? null);
       if (task.recur_rule) {
         try {
           const rule = JSON.parse(task.recur_rule);
@@ -216,6 +217,7 @@ export default function AddTaskScreen() {
       auto_hide_after_skips: autoHideAfterSkips ? Number(autoHideAfterSkips) : null,
       has_timer: hasTimer,
       duration_intent: durationIntent ? Number(durationIntent) : null,
+      preferred_time: preferredTime ?? null,
     };
 
     if (taskType === 'date_anchor') {
@@ -357,6 +359,27 @@ export default function AddTaskScreen() {
           <Text style={styles.label}>Auto-hide after N skips (optional)</Text>
           <Text style={styles.sublabel}>If skipped this many times in a row, steps back until next occurrence. Leave blank to always show.</Text>
           <TextInput style={styles.input} value={autoHideAfterSkips} onChangeText={setAutoHideAfterSkips} keyboardType="numeric" placeholder="e.g. 3" placeholderTextColor="#aaa" />
+          <Text style={styles.label}>Time of Day (optional)</Text>
+          <Text style={styles.sublabel}>Floats this task to the top of your list during the right window.</Text>
+          <View style={styles.segmentRow}>
+            {[
+              { key: null,          label: 'Any time'  },
+              { key: 'morning',     label: 'Morning'   },
+              { key: 'afternoon',   label: 'Afternoon' },
+              { key: 'evening',     label: 'Evening'   },
+            ].map(opt => (
+              <TouchableOpacity
+                key={String(opt.key)}
+                style={[styles.segBtn, preferredTime === opt.key && styles.segBtnActive]}
+                onPress={() => setPreferredTime(opt.key)}
+              >
+                <Text style={[styles.segText, preferredTime === opt.key && styles.segTextActive]}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
           <SwitchRow
             label="Track time"
             desc="Add a start/stop timer and optional minute goal to this task"

@@ -135,6 +135,22 @@ function computeAnchorNextDate(task, today) {
   return candidate;
 }
 
+// ─── Time-of-day window boost ─────────────────────────────────────────────────
+const TIME_WINDOWS = {
+  morning:   { start: 5,  end: 12 },
+  afternoon: { start: 12, end: 17 },
+  evening:   { start: 17, end: 22 },
+};
+
+function computeTimeWindowBoost(task) {
+  const w = TIME_WINDOWS[task.preferred_time];
+  if (!w) return 0;
+  const hour = new Date().getHours();
+  if (hour >= w.start && hour < w.end) return 40; // in window — boost to top
+  if (hour < w.start) return 10;                  // window coming up — keep visible
+  return 0;                                        // window passed — no penalty
+}
+
 // ─── Auto-hide check ──────────────────────────────────────────────────────────
 function shouldAutoHide(task, today) {
   if (!task.auto_hide_after_skips) return false;
@@ -166,7 +182,8 @@ export function buildDailyList() {
     // ── Timed goals: always show, never filtered by completion ────────────
     // Completion records for timed goals are time logs, not "done" markers.
     if (task.task_type === 'timed_goal') {
-      timedGoals.push({ ...task, effectivePriority: task.base_priority, score: 0, overdueDays: 0, daysUntilDue: null, displayLabel: null, completedToday: false });
+      const timeBoost = computeTimeWindowBoost(task);
+      timedGoals.push({ ...task, effectivePriority: task.base_priority, score: timeBoost, overdueDays: 0, daysUntilDue: null, displayLabel: null, completedToday: false });
       continue;
     }
 
@@ -281,7 +298,7 @@ export function buildDailyList() {
     effectivePriority = Math.min(effectivePriority, task.priority_ceiling ?? 4);
 
     // ── Two-factor score ──────────────────────────────────────────────────
-    const urgencyScore = computeUrgencyScore(task, today, overdueDays, daysUntilDue);
+    const urgencyScore = computeUrgencyScore(task, today, overdueDays, daysUntilDue) + computeTimeWindowBoost(task);
     const importanceScore = IMPORTANCE[effectivePriority] ?? 100;
     const score = urgencyScore + importanceScore;
 
@@ -299,6 +316,7 @@ export function buildDailyList() {
   const sortFn = (a, b) => b.score - a.score || a.title.localeCompare(b.title);
   mainItems.sort(sortFn);
   backlogItems.sort(sortFn);
+  timedGoals.sort(sortFn);
 
   return { mainItems, backlogItems, timedGoals };
 }
