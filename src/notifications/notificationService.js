@@ -198,12 +198,78 @@ export async function snoozeNotification(taskId, title, snoozeMinutes = 15) {
   });
 }
 
+async function rescheduleMidayNudges(taskCount, criticalTasks = []) {
+  const Notifications = getNotifications();
+  if (!Notifications) return;
+  try {
+    const all = await Notifications.getAllScheduledNotificationsAsync();
+    for (const n of all) {
+      if (n.content.data?.coaching === 'midday') {
+        await Notifications.cancelScheduledNotificationAsync(n.identifier);
+      }
+    }
+
+    const intensity = parseInt(getSetting('notification_intensity') ?? '3', 10);
+    const persona = getSetting('coach_persona') ?? 'coach';
+    const coach = getCoachText(persona);
+    const config = INTENSITY_CONFIG[intensity] ?? INTENSITY_CONFIG[3];
+
+    let body = coach.nudge(taskCount);
+    if (criticalTasks.length > 0) {
+      const shown = criticalTasks.slice(0, 2);
+      const extra = criticalTasks.length - shown.length;
+      const names = shown.map(t => t.title).join(', ');
+      body += extra > 0
+        ? `\nStill open: ${names}, +${extra} more`
+        : `\nStill open: ${names}`;
+    }
+
+    const summaryTime1 = getSetting('summary_time_1') ?? '12:00';
+    const summaryTime2 = getSetting('summary_time_2') ?? '17:00';
+    const summaryTimes = [summaryTime1, summaryTime2].slice(0, config.summaryCount);
+
+    for (const t of summaryTimes) {
+      const [h, m] = t.split(':').map(Number);
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Do The Thing',
+          body,
+          data: { coaching: 'midday' },
+        },
+        trigger: { type: 'daily', hour: h, minute: m, channelId: 'nudge' },
+      });
+    }
+  } catch (e) {
+    console.log('rescheduleMidayNudges error:', e.message);
+  }
+}
+
+export async function refreshMidayNudges() {
+  try {
+    const { buildDailyList } = require('../engine/scheduler');
+    const { mainItems, backlogItems } = buildDailyList();
+    const allRemaining = [...mainItems, ...backlogItems];
+    const criticalTasks = allRemaining.filter(t => t.effectivePriority >= 4);
+    await rescheduleMidayNudges(allRemaining.length, criticalTasks);
+  } catch (e) {
+    console.log('refreshMidayNudges error:', e.message);
+  }
+}
+
 export async function registerBackgroundTask() {
   const TaskManager = getTaskManager();
   const BackgroundFetch = getBackgroundFetch();
   if (!TaskManager || !BackgroundFetch) return;
   try {
     TaskManager.defineTask(BACKGROUND_TASK, async () => {
+      try {
+        const hour = new Date().getHours();
+        if (hour >= 6 && hour < 9) {
+          await refreshMidayNudges();
+        }
+      } catch (e) {
+        console.log('Background task error:', e.message);
+      }
       return BackgroundFetch.BackgroundFetchResult.NewData;
     });
     await BackgroundFetch.registerTaskAsync(BACKGROUND_TASK, {

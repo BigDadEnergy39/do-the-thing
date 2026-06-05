@@ -260,11 +260,15 @@ export default function AddTaskScreen() {
         <Text style={styles.chevron}>›</Text>
       </TouchableOpacity>
 
-      <Text style={styles.label}>Title</Text>
-      <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="What needs doing?" placeholderTextColor="#aaa" />
+      {taskType !== 'date_anchor' && (
+        <>
+          <Text style={styles.label}>Title</Text>
+          <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="What needs doing?" placeholderTextColor="#aaa" />
 
-      <Text style={styles.label}>Notes (optional)</Text>
-      <TextInput style={[styles.input, styles.notesInput]} value={notes} onChangeText={setNotes} placeholder="Any additional details…" placeholderTextColor="#aaa" multiline />
+          <Text style={styles.label}>Notes (optional)</Text>
+          <TextInput style={[styles.input, styles.notesInput]} value={notes} onChangeText={setNotes} placeholder="Any additional details…" placeholderTextColor="#aaa" multiline />
+        </>
+      )}
 
       <Text style={styles.label}>Category</Text>
       <TouchableOpacity style={styles.pickerBtn} onPress={() => setShowCatModal(true)}>
@@ -272,12 +276,16 @@ export default function AddTaskScreen() {
         <Text style={styles.chevron}>›</Text>
       </TouchableOpacity>
 
-      <Text style={styles.label}>Base Priority</Text>
-      <PriorityRow value={priority} onChange={setPriority} options={[1,2,3,4]} />
+      {taskType !== 'date_anchor' && (
+        <>
+          <Text style={styles.label}>Base Priority</Text>
+          <PriorityRow value={priority} onChange={setPriority} options={[1,2,3,4]} />
 
-      <Text style={styles.label}>Priority Ceiling</Text>
-      <Text style={styles.sublabel}>Auto-escalation will never exceed this level.</Text>
-      <PriorityRow value={priorityCeiling} onChange={setPriorityCeiling} options={[1,2,3,4]} />
+          <Text style={styles.label}>Priority Ceiling</Text>
+          <Text style={styles.sublabel}>Auto-escalation will never exceed this level.</Text>
+          <PriorityRow value={priorityCeiling} onChange={setPriorityCeiling} options={[1,2,3,4]} />
+        </>
+      )}
 
       {/* Unscheduled / Timed Goal: auto-escalation */}
       {(taskType === 'unscheduled' || taskType === 'timed_goal') && (

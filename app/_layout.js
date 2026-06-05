@@ -3,6 +3,9 @@ import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { TouchableOpacity, Text } from 'react-native';
 import { initDb } from '../src/db/schema';
+import Constants from 'expo-constants';
+
+const IS_EXPO_GO = Constants.appOwnership === 'expo';
 
 // Separated into its own component so useRouter runs inside the navigation tree
 function SettingsButton() {
@@ -14,14 +17,37 @@ function SettingsButton() {
   );
 }
 
+// Routes notification taps to the appropriate screen
+function NotificationHandler() {
+  const router = useRouter();
+  useEffect(() => {
+    if (IS_EXPO_GO) return;
+    let sub;
+    try {
+      const Notifications = require('expo-notifications');
+      sub = Notifications.addNotificationResponseReceivedListener(response => {
+        const data = response.notification.request.content.data;
+        if (data?.coaching === 'evening') {
+          router.push('/review');
+        }
+      });
+    } catch {}
+    return () => sub?.remove();
+  }, []);
+  return null;
+}
+
 async function setupNotifications() {
   try {
-    const { requestPermissions, createNotificationChannels, setupNotificationCategories, registerBackgroundTask, scheduleCoachingNotifications } =
+    const { requestPermissions, createNotificationChannels, setupNotificationCategories, registerBackgroundTask, scheduleCoachingNotifications, refreshMidayNudges } =
       await import('../src/notifications/notificationService');
     const granted = await requestPermissions();
     await createNotificationChannels();
     setupNotificationCategories();
-    if (granted) await scheduleCoachingNotifications();
+    if (granted) {
+      await scheduleCoachingNotifications();
+      refreshMidayNudges().catch(() => {});
+    }
     registerBackgroundTask().catch(() => {});
   } catch (e) {
     // Notifications unavailable in this environment (e.g. Expo Go remote push restriction)
@@ -57,7 +83,9 @@ export default function RootLayout() {
         <Stack.Screen name="add" options={{ title: 'New Task', presentation: 'modal' }} />
         <Stack.Screen name="task/[id]" options={{ title: 'Task Details' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+        <Stack.Screen name="review" options={{ title: "Today's Wrap-Up" }} />
       </Stack>
+      <NotificationHandler />
     </>
   );
 }
