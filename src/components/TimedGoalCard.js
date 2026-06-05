@@ -30,6 +30,9 @@ export function TimedGoalCard({ task, onComplete, onPress }) {
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    // Reset animation in case a Fast Refresh cycle left it at 0
+    fadeAnim.setValue(1);
+
     const logged = isWeekly
       ? getWeekTimedSeconds(task.id)
       : getTodayTimedSeconds(task.id);
@@ -58,8 +61,12 @@ export function TimedGoalCard({ task, onComplete, onPress }) {
 
   const handleToggleTimer = () => {
     if (timerRunning) {
-      const secs = endTimedSession(sessionId);
-      setBaseSeconds(s => s + secs);
+      endTimedSession(sessionId);
+      // Re-read the authoritative total from DB now that the session is committed
+      const newBase = isWeekly
+        ? getWeekTimedSeconds(task.id)
+        : getTodayTimedSeconds(task.id);
+      setBaseSeconds(newBase);
       setElapsedSecs(0);
       setTimerRunning(false);
       setSessionId(null);
@@ -84,6 +91,8 @@ export function TimedGoalCard({ task, onComplete, onPress }) {
   };
 
   const handleComplete = () => {
+    // Guard: timed_goal tasks never fade out — they accumulate time, not "done"
+    if (!hasCheckmark) return;
     // Stop any running timer first, capture the seconds
     let finalSecs = baseSeconds + elapsedSecs;
     if (timerRunning && sessionId) {
@@ -116,42 +125,45 @@ export function TimedGoalCard({ task, onComplete, onPress }) {
   const catColor = task.category_color ?? COLORS.primary;
 
   return (
-    <Animated.View style={[styles.card, timerRunning && styles.cardActive, { opacity: fadeAnim }]}>
+    <Animated.View style={[styles.card, timerRunning && styles.cardActive, hasCheckmark && { opacity: fadeAnim }]}>
       <View style={[styles.accentBar, { backgroundColor: timerRunning ? COLORS.success : catColor }]} />
 
-      <TouchableOpacity style={styles.body} onPress={() => onPress?.(task)} activeOpacity={0.7}>
-        {/* Chips row */}
-        <View style={styles.chipsRow}>
-          {task.category_name && (
-            <View style={[styles.catChip, { backgroundColor: catColor + '33' }]}>
-              <Text style={[styles.catText, { color: catColor }]}>{task.category_name}</Text>
-            </View>
-          )}
-          {task.displayLabel && (
-            <View style={[styles.labelChip, { backgroundColor: '#4a90d922' }]}>
-              <Text style={[styles.labelText, { color: COLORS.primary }]}>{task.displayLabel}</Text>
-            </View>
-          )}
-          {goalMet && (
-            <View style={styles.goalMetChip}>
-              <Text style={styles.goalMetText}>Goal met ✓</Text>
-            </View>
-          )}
-        </View>
-
-        <Text style={styles.title}>{task.title}</Text>
-
-        {/* Progress bar */}
-        {goalSecs > 0 && (
-          <View style={styles.barBg}>
-            <View style={[
-              styles.barFill,
-              { width: `${pct * 100}%`, backgroundColor: goalMet ? COLORS.success : COLORS.primary }
-            ]} />
+      {/* Tappable info area: chips, title, progress bar — navigates to detail */}
+      <View style={styles.bodyOuter}>
+        <TouchableOpacity onPress={() => onPress?.(task)} activeOpacity={0.7} style={styles.bodyInfo}>
+          {/* Chips row */}
+          <View style={styles.chipsRow}>
+            {task.category_name && (
+              <View style={[styles.catChip, { backgroundColor: catColor + '33' }]}>
+                <Text style={[styles.catText, { color: catColor }]}>{task.category_name}</Text>
+              </View>
+            )}
+            {task.displayLabel && (
+              <View style={[styles.labelChip, { backgroundColor: '#4a90d922' }]}>
+                <Text style={[styles.labelText, { color: COLORS.primary }]}>{task.displayLabel}</Text>
+              </View>
+            )}
+            {goalMet && (
+              <View style={styles.goalMetChip}>
+                <Text style={styles.goalMetText}>Goal met ✓</Text>
+              </View>
+            )}
           </View>
-        )}
 
-        {/* Timer row */}
+          <Text style={styles.title}>{task.title}</Text>
+
+          {/* Progress bar */}
+          {goalSecs > 0 && (
+            <View style={styles.barBg}>
+              <View style={[
+                styles.barFill,
+                { width: `${pct * 100}%`, backgroundColor: goalMet ? COLORS.success : COLORS.primary }
+              ]} />
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Timer row — NOT nested inside the body touchable to avoid Android touch conflicts */}
         <View style={styles.timerRow}>
           <View>
             <Text style={styles.timerText}>{formatTime(totalSecs)}</Text>
@@ -168,7 +180,7 @@ export function TimedGoalCard({ task, onComplete, onPress }) {
             <Text style={styles.timerBtnText}>{timerRunning ? '⏸ Pause' : '▶ Start'}</Text>
           </TouchableOpacity>
         </View>
-      </TouchableOpacity>
+      </View>
 
       {/* Right-side action column */}
       <View style={styles.actionCol}>
@@ -254,13 +266,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 3,
     overflow: 'hidden',
+    // borderWidth must stay constant on Android — changing it at runtime with
+    // overflow:hidden + borderRadius causes content to be clipped to nothing.
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   cardActive: {
-    borderWidth: 1,
     borderColor: COLORS.success + '66',
   },
   accentBar: { width: 4 },
-  body: { flex: 1, padding: 14 },
+  bodyOuter: { flex: 1 },
+  bodyInfo: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 6 },
+  body: { flex: 1, padding: 14 }, // kept for reference, no longer used directly
   chipsRow: { flexDirection: 'row', gap: 6, marginBottom: 4, flexWrap: 'wrap' },
   title: { fontSize: 16, fontWeight: '600', color: '#1a1a2e', marginBottom: 10 },
   catChip: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
@@ -279,6 +296,7 @@ const styles = StyleSheet.create({
   barFill: { height: '100%', borderRadius: 2 },
   timerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, paddingBottom: 14,
   },
   timerText: {
     fontSize: 18, fontWeight: '700', color: '#1a1a2e',

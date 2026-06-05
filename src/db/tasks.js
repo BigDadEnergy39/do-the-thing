@@ -176,13 +176,14 @@ export function endTimedSession(sessionId) {
      FROM timed_sessions WHERE id = ?`,
     [sessionId]
   );
-  if (session?.seconds > 0) {
+  const seconds = session?.seconds ?? 0;
+  if (seconds > 0) {
     db.runSync(
       `INSERT INTO completions (task_id, seconds_logged) VALUES (?,?)`,
-      [session.task_id, session.seconds]
+      [session.task_id, seconds]
     );
   }
-  return session?.seconds ?? 0;
+  return seconds;
 }
 
 export function getActiveTimedSession(taskId) {
