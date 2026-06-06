@@ -13,6 +13,15 @@ const TODAY = () => {
 
 const toDate = (str) => {
   if (!str) return null;
+  // Date-only strings (YYYY-MM-DD) are parsed as UTC midnight by JS, but we
+  // need local midnight so day comparisons align with the user's timezone.
+  // Splitting manually avoids the UTC-vs-local ambiguity entirely.
+  const parts = str.slice(0, 10).split('-').map(Number);
+  if (parts.length === 3) {
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    return isNaN(d) ? null : d;
+  }
+  // Fall back for full datetime strings (e.g. completed_at)
   const d = new Date(str);
   d.setHours(0, 0, 0, 0);
   return isNaN(d) ? null : d;
@@ -80,12 +89,15 @@ function isRecurringDueToday(task, today) {
 function getRecurringOverdueDays(task, today, lastCompletion) {
   const rule = parseRule(task.recur_rule);
   const lastDate = lastCompletion ? toDate(lastCompletion.completed_at) : null;
+  // A past occurrence before the task was created can't be "missed" — the task didn't exist yet.
+  const createdDate = toDate(task.created_at) ?? today;
 
   if (rule.type === 'weekly') {
     let check = new Date(today);
     check.setDate(check.getDate() - 1);
     for (let i = 0; i < 14; i++) {
       if ((rule.days || []).includes(check.getDay())) {
+        if (check < createdDate) return 0; // occurrence predates task creation — not overdue
         if (!lastDate || lastDate < check) return daysBetween(check, today);
         return 0;
       }
@@ -93,8 +105,9 @@ function getRecurringOverdueDays(task, today, lastCompletion) {
     }
   }
   if (rule.type === 'daily') {
-    if (!lastDate) return Math.max(0, daysBetween(toDate(task.created_at) ?? today, today));
-    const diff = daysBetween(lastDate, today);
+    // For daily tasks, overdue is measured from the later of created_at or last completion.
+    const baseline = lastDate ?? createdDate;
+    const diff = daysBetween(baseline, today);
     return diff > 1 ? diff - 1 : 0;
   }
   if (rule.type === 'interval') {
@@ -105,6 +118,7 @@ function getRecurringOverdueDays(task, today, lastCompletion) {
     for (let i = 0; i < (rule.interval ?? 7) * 2; i++) {
       const diff = daysBetween(start, check);
       if (diff >= 0 && diff % rule.interval === 0) {
+        if (check < createdDate) return 0; // occurrence predates task creation — not overdue
         if (!lastDate || lastDate < check) return daysBetween(check, today);
         return 0;
       }
@@ -121,8 +135,12 @@ function parseRule(raw) {
 
 function wasCompletedToday(lastCompletion, today) {
   if (!lastCompletion) return false;
-  const d = toDate(lastCompletion.completed_at);
-  return d?.getTime() === today.getTime();
+  // completed_at is stored as UTC ('YYYY-MM-DD HH:MM:SS'). Parse it as UTC
+  // by normalising to ISO format before constructing the Date, then compare
+  // against local-day boundaries so evening completions aren't missed.
+  const completedAt = new Date(lastCompletion.completed_at.replace(' ', 'T') + 'Z');
+  const startOfTomorrow = new Date(today.getTime() + 86400000);
+  return completedAt >= today && completedAt < startOfTomorrow;
 }
 
 function computeAnchorNextDate(task, today) {

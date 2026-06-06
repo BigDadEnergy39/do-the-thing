@@ -130,28 +130,41 @@ export function getLastCompletion(taskId) {
   );
 }
 
+// Convert a JS Date to SQLite datetime string ('YYYY-MM-DD HH:MM:SS') in UTC.
+// All completions are stored as UTC via datetime('now'), so queries must also
+// use UTC boundaries — derived from local midnight — to match correctly.
+function toSqliteDatetime(d) {
+  return d.toISOString().replace('T', ' ').slice(0, 19);
+}
+
+// Returns UTC boundaries [start, end) that span "today" in local time.
+function localDayBounds() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end   = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  return { start: toSqliteDatetime(start), end: toSqliteDatetime(end) };
+}
+
 export function getTodayTimedSeconds(taskId) {
   const db = getDb();
-  const today = new Date().toISOString().slice(0, 10);
+  const { start, end } = localDayBounds();
   const row = db.getFirstSync(
     `SELECT COALESCE(SUM(seconds_logged),0) as total
-     FROM completions WHERE task_id = ? AND date(completed_at) = ?`,
-    [taskId, today]
+     FROM completions WHERE task_id = ? AND completed_at >= ? AND completed_at < ?`,
+    [taskId, start, end]
   );
   return row?.total ?? 0;
 }
 
 export function getWeekTimedSeconds(taskId) {
   const db = getDb();
-  // Start of current week (Sunday)
   const now = new Date();
-  const startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() - now.getDay());
-  startOfWeek.setHours(0, 0, 0, 0);
+  // Midnight local time on the most recent Sunday
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
   const row = db.getFirstSync(
     `SELECT COALESCE(SUM(seconds_logged),0) as total
      FROM completions WHERE task_id = ? AND completed_at >= ?`,
-    [taskId, startOfWeek.toISOString()]
+    [taskId, toSqliteDatetime(startOfWeek)]
   );
   return row?.total ?? 0;
 }
@@ -196,14 +209,14 @@ export function getActiveTimedSession(taskId) {
 
 export function getTodayCompletedTasks() {
   const db = getDb();
-  const today = new Date().toISOString().slice(0, 10);
+  const { start, end } = localDayBounds();
   return db.getAllSync(`
     SELECT DISTINCT t.id, t.title, t.task_type, t.base_priority, t.category_id,
       c.name as category_name
     FROM completions co
     JOIN tasks t ON t.id = co.task_id
     LEFT JOIN categories c ON c.id = t.category_id
-    WHERE date(co.completed_at) = ?
+    WHERE co.completed_at >= ? AND co.completed_at < ?
     ORDER BY co.completed_at DESC
-  `, [today]);
+  `, [start, end]);
 }
