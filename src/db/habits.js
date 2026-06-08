@@ -50,68 +50,58 @@ export function recordHabitCheckin(taskId, window, response) {
  */
 export function getHabitStreak(taskId) {
   const db = getDb();
-  // Fetch all distinct local days with a 'kept' or 'mostly' checkin, newest first
-  const rows = db.getAllSync(
-    `SELECT date(checked_in_at) as day
-     FROM habit_checkins
+  // checked_in_at is stored as UTC. Use local-day boundaries for each day so
+  // that late-evening check-ins aren't attributed to the wrong (UTC) date.
+  // We fetch all successful check-ins and bucket them into local days in JS,
+  // matching the same localDayBounds() approach used elsewhere.
+  const allRows = db.getAllSync(
+    `SELECT checked_in_at FROM habit_checkins
      WHERE task_id = ? AND response IN ('kept', 'mostly')
-     GROUP BY date(checked_in_at)
-     ORDER BY day DESC`,
+     ORDER BY checked_in_at DESC`,
     [taskId]
   );
-  if (!rows.length) return { streak: 0, bestStreak: 0 };
+  if (!allRows.length) return { streak: 0, bestStreak: 0 };
 
-  // Count consecutive days ending today (or yesterday — allow same-day viewing)
+  // Convert each UTC timestamp to a local YYYY-MM-DD string, then deduplicate
+  const toLocalDay = (utcStr) => {
+    const d = new Date(utcStr.replace(' ', 'T') + 'Z');
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+  const days = [...new Set(allRows.map(r => toLocalDay(r.checked_in_at)))];
+  // days is already newest-first (inherited from ORDER BY DESC)
+
   const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-  const yest = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  const yestStr = `${yest.getFullYear()}-${String(yest.getMonth()+1).padStart(2,'0')}-${String(yest.getDate()).padStart(2,'0')}`;
+  const todayStr = toLocalDay(toSqliteDatetime(now));
+  const yestStr  = toLocalDay(toSqliteDatetime(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)));
 
+  // Current streak: consecutive days ending today or yesterday
   let streak = 0;
-  let bestStreak = 0;
-  let tempStreak = 0;
-  let expected = rows[0].day === todayStr || rows[0].day === yestStr
-    ? rows[0].day : null;
-
-  for (let i = 0; i < rows.length; i++) {
-    const day = rows[i].day;
-    if (i === 0) {
-      tempStreak = 1;
-      if (expected) streak = 1;
-    } else {
-      // Check if this day is exactly one before the previous
-      const prev = new Date(rows[i-1].day + 'T12:00:00');
-      const curr = new Date(day + 'T12:00:00');
-      const diffDays = Math.round((prev - curr) / 86400000);
-      if (diffDays === 1) {
-        tempStreak++;
-        if (i < streak + 1 || streak === i) streak = tempStreak;
-      } else {
-        if (tempStreak > bestStreak) bestStreak = tempStreak;
-        tempStreak = 1;
-        if (streak === i) streak = 0; // broke before counting this far
-      }
-    }
-    if (tempStreak > bestStreak) bestStreak = tempStreak;
-  }
-  // Final streak is only valid if it chains back to today/yesterday
-  if (rows[0].day !== todayStr && rows[0].day !== yestStr) streak = 0;
-  else streak = tempStreak; // recount properly
-
-  // Simpler recount: walk from the start again for current streak
-  let cur = 0;
-  if (rows[0].day === todayStr || rows[0].day === yestStr) {
-    cur = 1;
-    for (let i = 1; i < rows.length; i++) {
-      const prev = new Date(rows[i-1].day + 'T12:00:00');
-      const curr = new Date(rows[i].day + 'T12:00:00');
-      const diff = Math.round((prev - curr) / 86400000);
-      if (diff === 1) cur++;
+  if (days[0] === todayStr || days[0] === yestStr) {
+    streak = 1;
+    for (let i = 1; i < days.length; i++) {
+      const prev = new Date(days[i-1] + 'T12:00:00');
+      const curr = new Date(days[i]   + 'T12:00:00');
+      if (Math.round((prev - curr) / 86400000) === 1) streak++;
       else break;
     }
   }
 
-  return { streak: cur, bestStreak };
+  // Best streak: longest consecutive run anywhere in history
+  let bestStreak = 0;
+  let run = 1;
+  for (let i = 1; i < days.length; i++) {
+    const prev = new Date(days[i-1] + 'T12:00:00');
+    const curr = new Date(days[i]   + 'T12:00:00');
+    if (Math.round((prev - curr) / 86400000) === 1) {
+      run++;
+    } else {
+      if (run > bestStreak) bestStreak = run;
+      run = 1;
+    }
+  }
+  if (run > bestStreak) bestStreak = run;
+
+  return { streak, bestStreak };
 }
 
 /**

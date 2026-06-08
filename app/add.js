@@ -541,7 +541,7 @@ export default function AddTaskScreen() {
               </TouchableOpacity>
             ))}
           </View>
-          <Text style={styles.sublabel} style={{ marginTop: 12 }}>
+          <Text style={[styles.sublabel, { marginTop: 12 }]}>
             Each day you'll get three options: Kept it, Mostly, or Didn't. Streaks track days you kept it or mostly kept it.
           </Text>
         </>

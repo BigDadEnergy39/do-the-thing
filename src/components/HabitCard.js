@@ -60,7 +60,7 @@ export function HabitCard({ task, checkinResponse: initialResponse, streak, onCh
         {task.notes ? <Text style={styles.notes} numberOfLines={2}>{task.notes}</Text> : null}
 
         {/* Check-in buttons or response badge */}
-        {response ? (
+        {response && chosenResponse ? (
           <View style={styles.responseRow}>
             <View style={[styles.responseBadge, { backgroundColor: chosenResponse.bg }]}>
               <Text style={[styles.responseText, { color: chosenResponse.color }]}>
