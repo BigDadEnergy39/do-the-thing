@@ -27,8 +27,10 @@ function NotificationHandler() {
       const Notifications = require('expo-notifications');
       sub = Notifications.addNotificationResponseReceivedListener(response => {
         const data = response.notification.request.content.data;
-        if (data?.coaching === 'evening') {
+        if (data?.coaching === 'evening' || data?.coaching === 'weekly') {
           router.push('/review');
+        } else if (data?.coaching === 'morning' || data?.coaching === 'midday') {
+          router.push('/');
         }
       });
     } catch {}
