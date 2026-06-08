@@ -225,8 +225,10 @@ export function buildDailyList() {
     let displayLabel = null;
 
     // ── Unscheduled ───────────────────────────────────────────────────────
+    // One-time to-dos: hide permanently once completed (any completion, not
+    // just today's). wasCompletedToday already handled today's case above.
     if (task.task_type === 'unscheduled') {
-      include = true;
+      if (!last) include = true;
     }
 
     // ── Deadline ──────────────────────────────────────────────────────────
