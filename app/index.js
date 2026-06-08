@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import { useDailyList } from '../src/hooks/useDailyList';
 import { TaskCard } from '../src/components/TaskCard';
 import { TimedGoalCard } from '../src/components/TimedGoalCard';
+import { HabitCard } from '../src/components/HabitCard';
 import { FastCapture } from '../src/components/FastCapture';
 import { COLORS } from '../src/components/theme';
 import { getSetting } from '../src/db/settings';
@@ -14,7 +15,7 @@ import { getCoachText } from '../src/components/CoachText';
 
 export default function TodayScreen() {
   const router = useRouter();
-  const { mainItems, backlogItems, timedGoals, loading, refresh } = useDailyList();
+  const { mainItems, backlogItems, timedGoals, habits, loading, refresh } = useDailyList();
   const [completedIds, setCompletedIds] = useState(new Set());
   const [backlogExpanded, setBacklogExpanded] = useState(false);
   const [fastCaptureVisible, setFastCaptureVisible] = useState(false);
@@ -35,7 +36,7 @@ export default function TodayScreen() {
     weekday: 'long', month: 'long', day: 'numeric',
   });
 
-  const isEmpty = totalRemaining === 0 && timedGoals.length === 0;
+  const isEmpty = totalRemaining === 0 && timedGoals.length === 0 && habits.length === 0;
 
   return (
     <View style={styles.container}>
@@ -88,6 +89,25 @@ export default function TodayScreen() {
               <TimedGoalCard
                 key={item.id}
                 task={item}
+                onPress={(t) => router.push(`/task/${t.id}`)}
+              />
+            ))}
+          </View>
+        )}
+
+        {/* Habits section */}
+        {habits.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Habits</Text>
+            </View>
+            {habits.map(item => (
+              <HabitCard
+                key={item.id}
+                task={item}
+                checkinResponse={item.checkinResponse}
+                streak={item.streak}
+                onCheckin={refresh}
                 onPress={(t) => router.push(`/task/${t.id}`)}
               />
             ))}

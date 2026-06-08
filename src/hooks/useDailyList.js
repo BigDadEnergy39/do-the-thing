@@ -6,6 +6,7 @@ export function useDailyList() {
   const [mainItems, setMainItems] = useState([]);
   const [backlogItems, setBacklogItems] = useState([]);
   const [timedGoals, setTimedGoals] = useState([]);
+  const [habits, setHabits] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(() => {
@@ -15,6 +16,7 @@ export function useDailyList() {
       setMainItems(result.mainItems);
       setBacklogItems(result.backlogItems);
       setTimedGoals(result.timedGoals);
+      setHabits(result.habits);
     } finally {
       setLoading(false);
     }
@@ -22,5 +24,5 @@ export function useDailyList() {
 
   useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
 
-  return { mainItems, backlogItems, timedGoals, loading, refresh };
+  return { mainItems, backlogItems, timedGoals, habits, loading, refresh };
 }

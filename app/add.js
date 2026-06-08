@@ -18,6 +18,7 @@ const TASK_TYPES = [
   { key: 'randomized', label: 'Randomized', desc: 'Every 2–4 weeks, random day' },
   { key: 'date_anchor', label: 'Important Date', desc: 'Birthday, anniversary, etc.' },
   { key: 'timed_goal', label: 'Timed Goal', desc: 'Unscheduled habit — track time with no fixed days (e.g., practice guitar)' },
+  { key: 'habit', label: 'Habit', desc: 'Daily behavior check-in — Kept it / Mostly / Didn\'t (e.g., avoid simple carbs)' },
 ];
 
 const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -58,6 +59,7 @@ export default function AddTaskScreen() {
   const [hasTimer, setHasTimer] = useState(false);
   const [durationIntent, setDurationIntent] = useState('');
   const [preferredTime, setPreferredTime] = useState(null);
+  const [habitWindow, setHabitWindow] = useState('morning');
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
 
@@ -100,6 +102,7 @@ export default function AddTaskScreen() {
       setHasTimer(!!task.has_timer);
       setDurationIntent(task.duration_intent ? String(task.duration_intent) : '');
       setPreferredTime(task.preferred_time ?? null);
+      setHabitWindow(task.habit_window ?? 'morning');
       if (task.recur_rule) {
         try {
           const rule = JSON.parse(task.recur_rule);
@@ -218,6 +221,7 @@ export default function AddTaskScreen() {
       has_timer: hasTimer,
       duration_intent: durationIntent ? Number(durationIntent) : null,
       preferred_time: preferredTime ?? null,
+      habit_window: taskType === 'habit' ? habitWindow : null,
     };
 
     if (taskType === 'date_anchor') {
@@ -512,8 +516,39 @@ export default function AddTaskScreen() {
         </>
       )}
 
+      {/* ── Habit ── */}
+      {taskType === 'habit' && (
+        <>
+          <Text style={styles.label}>Check-in Window</Text>
+          <Text style={styles.sublabel}>When does this habit apply? You'll see it in this window each day.</Text>
+          <View style={styles.segmentRow}>
+            {[
+              { key: 'morning',   label: 'Morning',   sub: 'before 10 AM' },
+              { key: 'afternoon', label: 'Afternoon', sub: '12–5 PM'      },
+              { key: 'evening',   label: 'Evening',   sub: 'after 5 PM'   },
+            ].map(opt => (
+              <TouchableOpacity
+                key={opt.key}
+                style={[styles.segBtn, habitWindow === opt.key && styles.segBtnActive]}
+                onPress={() => setHabitWindow(opt.key)}
+              >
+                <Text style={[styles.segText, habitWindow === opt.key && styles.segTextActive]}>
+                  {opt.label}
+                </Text>
+                <Text style={[styles.segSubText, habitWindow === opt.key && styles.segTextActive]}>
+                  {opt.sub}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={styles.sublabel} style={{ marginTop: 12 }}>
+            Each day you'll get three options: Kept it, Mostly, or Didn't. Streaks track days you kept it or mostly kept it.
+          </Text>
+        </>
+      )}
+
       {/* Duration intent — available on all task types */}
-      {taskType !== 'timed_goal' && (
+      {taskType !== 'timed_goal' && taskType !== 'habit' && (
         <>
           <Text style={styles.label}>Estimated time (optional)</Text>
           <Text style={styles.sublabel}>Soft commitment — shows as "~Xm" on the card. Not tracked, just a reminder.</Text>
@@ -617,6 +652,7 @@ const styles = StyleSheet.create({
   segBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', backgroundColor: '#fff' },
   segBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   segText: { fontSize: 14, color: COLORS.subtext, fontWeight: '500' },
+  segSubText: { fontSize: 10, color: COLORS.subtext, marginTop: 2 },
   segTextActive: { color: '#fff' },
   dowRow: { flexDirection: 'row', gap: 4 },
   dowBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', backgroundColor: '#fff' },

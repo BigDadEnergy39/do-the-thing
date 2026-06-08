@@ -4,6 +4,7 @@
  */
 
 import { getAllTasks, getLastCompletion, updateTask } from '../db/tasks';
+import { getTodayHabitCheckin, getHabitStreak } from '../db/habits';
 
 const TODAY = () => {
   const d = new Date();
@@ -155,7 +156,7 @@ function computeAnchorNextDate(task, today) {
 
 // ─── Time-of-day window boost ─────────────────────────────────────────────────
 const TIME_WINDOWS = {
-  morning:   { start: 5,  end: 12 },
+  morning:   { start: 5,  end: 10 },
   afternoon: { start: 12, end: 17 },
   evening:   { start: 17, end: 22 },
 };
@@ -193,9 +194,18 @@ export function buildDailyList() {
   const mainItems = [];    // top + normal priority, active today
   const backlogItems = []; // low-priority or stale items
   const timedGoals = [];   // always-visible timed goals
+  const habits = [];       // habit check-ins, grouped by window
 
   for (const task of allTasks) {
     const last = getLastCompletion(task.id);
+
+    // ── Habits: always show, grouped by window ────────────────────────────
+    if (task.task_type === 'habit') {
+      const checkin = getTodayHabitCheckin(task.id, task.habit_window);
+      const { streak } = getHabitStreak(task.id);
+      habits.push({ ...task, checkinResponse: checkin?.response ?? null, streak });
+      continue;
+    }
 
     // ── Timed goals: always show, never filtered by completion ────────────
     // Completion records for timed goals are time logs, not "done" markers.
@@ -336,7 +346,14 @@ export function buildDailyList() {
   backlogItems.sort(sortFn);
   timedGoals.sort(sortFn);
 
-  return { mainItems, backlogItems, timedGoals };
+  // Sort habits by window order: morning → afternoon → evening → other
+  const WINDOW_ORDER = { morning: 0, afternoon: 1, evening: 2 };
+  habits.sort((a, b) =>
+    (WINDOW_ORDER[a.habit_window] ?? 3) - (WINDOW_ORDER[b.habit_window] ?? 3)
+    || a.title.localeCompare(b.title)
+  );
+
+  return { mainItems, backlogItems, timedGoals, habits };
 }
 
 export function advanceRandomizedTask(task) {

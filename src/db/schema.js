@@ -93,6 +93,14 @@ function initDbSync(db) {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS habit_checkins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      window TEXT NOT NULL,
+      response TEXT NOT NULL,
+      checked_in_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migrations: add columns that may not exist in older installs
@@ -109,6 +117,8 @@ function initDbSync(db) {
     `ALTER TABLE tasks ADD COLUMN duration_intent INTEGER`,
     // Preferred time of day: 'morning' | 'afternoon' | 'evening' | null
     `ALTER TABLE tasks ADD COLUMN preferred_time TEXT`,
+    // Habit window: which time-of-day window this habit belongs to
+    `ALTER TABLE tasks ADD COLUMN habit_window TEXT`,
   ];
   for (const sql of migrations) {
     try { db.execSync(sql); } catch (_) { /* column already exists */ }
