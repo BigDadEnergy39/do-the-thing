@@ -86,6 +86,7 @@ export default function RootLayout() {
         <Stack.Screen name="task/[id]" options={{ title: 'Task Details' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
         <Stack.Screen name="review" options={{ title: "Today's Wrap-Up" }} />
+        <Stack.Screen name="all-tasks" options={{ title: 'All Tasks' }} />
       </Stack>
       <NotificationHandler />
     </>

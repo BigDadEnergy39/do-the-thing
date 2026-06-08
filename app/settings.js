@@ -6,6 +6,7 @@ import {
 import { useFocusEffect } from 'expo-router';
 import { getAllCategories, createCategory, updateCategory, deleteCategory } from '../src/db/categories';
 import { TimePickerField } from '../src/components/TimePickerField';
+import { useRouter } from 'expo-router';
 import { getSetting, setSetting, getAllSettings } from '../src/db/settings';
 import { PERSONA_OPTIONS } from '../src/components/CoachText';
 import { scheduleCoachingNotifications } from '../src/notifications/notificationService';
@@ -25,6 +26,7 @@ const INTENSITY_LABELS = {
 };
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const [categories, setCategories] = useState([]);
   const [settings, setSettings] = useState({});
   const [catModalVisible, setCatModalVisible] = useState(false);
@@ -73,6 +75,15 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+
+      {/* ── Manage Tasks ── */}
+      <TouchableOpacity style={styles.allTasksBtn} onPress={() => router.push('/all-tasks')} activeOpacity={0.7}>
+        <View style={styles.allTasksBtnInner}>
+          <Text style={styles.allTasksBtnTitle}>View All Tasks</Text>
+          <Text style={styles.allTasksBtnDesc}>Browse every active task — check for duplicates, tap to edit</Text>
+        </View>
+        <Text style={styles.allTasksArrow}>›</Text>
+      </TouchableOpacity>
 
       {/* ── Coach Persona ── */}
       <Text style={styles.sectionHeader}>Coach Persona</Text>
@@ -267,6 +278,16 @@ const styles = StyleSheet.create({
     borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 4,
   },
   addCatBtnText: { color: COLORS.primary, fontWeight: '600', fontSize: 15 },
+
+  allTasksBtn: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 16,
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 1, borderColor: COLORS.border, marginBottom: 28,
+  },
+  allTasksBtnInner: { flex: 1 },
+  allTasksBtnTitle: { fontSize: 16, fontWeight: '600', color: COLORS.text, marginBottom: 2 },
+  allTasksBtnDesc: { fontSize: 13, color: COLORS.subtext },
+  allTasksArrow: { fontSize: 24, color: '#ccc', marginLeft: 8 },
 
   aboutCard: { backgroundColor: '#fff', borderRadius: 12, padding: 20 },
   aboutText: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 6 },

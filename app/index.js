@@ -15,9 +15,10 @@ import { getCoachText } from '../src/components/CoachText';
 
 export default function TodayScreen() {
   const router = useRouter();
-  const { mainItems, backlogItems, timedGoals, habits, loading, refresh } = useDailyList();
+  const { mainItems, backlogItems, timedGoals, habits, completedToday, loading, refresh } = useDailyList();
   const [completedIds, setCompletedIds] = useState(new Set());
   const [backlogExpanded, setBacklogExpanded] = useState(false);
+  const [completedExpanded, setCompletedExpanded] = useState(false);
   const [fastCaptureVisible, setFastCaptureVisible] = useState(false);
 
   const persona = getSetting('coach_persona') ?? 'coach';
@@ -146,6 +147,37 @@ export default function TodayScreen() {
           </View>
         )}
 
+        {/* Completed today section */}
+        {completedToday.length > 0 && (
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={styles.sectionHeader}
+              onPress={() => setCompletedExpanded(e => !e)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.sectionTitle}>Completed</Text>
+              <Text style={styles.sectionCount}>{completedToday.length}</Text>
+              <Text style={styles.sectionChevron}>{completedExpanded ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+            {completedExpanded && completedToday.map(item => (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.completedRow}
+                onPress={() => router.push(`/task/${item.id}`)}
+                activeOpacity={0.6}
+              >
+                <Text style={styles.completedCheck}>✓</Text>
+                <View style={styles.completedBody}>
+                  {item.category_name && (
+                    <Text style={styles.completedCat}>{item.category_name}</Text>
+                  )}
+                  <Text style={styles.completedTitle}>{item.title}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         <View style={{ height: 100 }} />
       </ScrollView>
 
@@ -215,4 +247,15 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border,
   },
   fabSecondaryText: { fontSize: 20 },
+  completedRow: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: 16, marginVertical: 3,
+    backgroundColor: '#fff', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 10,
+    opacity: 0.45,
+  },
+  completedCheck: { fontSize: 14, color: COLORS.success, fontWeight: '700', marginRight: 10 },
+  completedBody: { flex: 1 },
+  completedCat: { fontSize: 10, fontWeight: '700', color: COLORS.subtext, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 1 },
+  completedTitle: { fontSize: 15, color: COLORS.text, fontWeight: '500', textDecorationLine: 'line-through' },
 });

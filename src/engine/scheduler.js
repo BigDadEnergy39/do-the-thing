@@ -3,7 +3,7 @@
  * auto-escalation, auto-hide stale recurring tasks, backlog grouping.
  */
 
-import { getAllTasks, getLastCompletion, updateTask } from '../db/tasks';
+import { getAllTasks, getLastCompletion, updateTask, getTodayCompletedTasks } from '../db/tasks';
 import { getTodayHabitCheckin, getHabitStreak } from '../db/habits';
 
 const TODAY = () => {
@@ -355,7 +355,12 @@ export function buildDailyList() {
     || a.title.localeCompare(b.title)
   );
 
-  return { mainItems, backlogItems, timedGoals, habits };
+  // Completed today — for the "done" section at the bottom of the Today screen.
+  // Exclude timed_goal tasks (their completions are time logs, not "done" markers).
+  const completedToday = getTodayCompletedTasks()
+    .filter(t => t.task_type !== 'timed_goal');
+
+  return { mainItems, backlogItems, timedGoals, habits, completedToday };
 }
 
 export function advanceRandomizedTask(task) {
