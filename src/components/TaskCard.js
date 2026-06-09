@@ -10,6 +10,17 @@ import { COLORS, PRIORITY_COLORS } from './theme';
 
 const PRIORITY_LABELS = { 1: 'Low', 2: 'Normal', 3: 'High', 4: 'Critical' };
 
+// Only show a chip + card tint for High and Critical — Low/Normal stay quiet
+const PRIORITY_CHIP = {
+  3: { label: 'High',     color: '#d68910', bg: '#fef9e7' },
+  4: { label: 'Critical', color: '#e74c3c', bg: '#fdf2f2' },
+};
+// Subtle card background tint for elevated priorities
+const PRIORITY_CARD_TINT = {
+  3: '#fffbf0', // warm cream
+  4: '#fff8f8', // very light red
+};
+
 export function TaskCard({ task, onComplete, onPress }) {
   const [timerRunning, setTimerRunning] = useState(false);
   const [sessionId, setSessionId] = useState(null);
@@ -80,8 +91,11 @@ export function TaskCard({ task, onComplete, onPress }) {
     ? Math.min(1, (secondsToday + elapsedSecs) / (task.goal_minutes * 60))
     : null;
 
+  const priorityChip = PRIORITY_CHIP[task.effectivePriority ?? task.base_priority];
+  const cardTint = PRIORITY_CARD_TINT[task.effectivePriority ?? task.base_priority];
+
   return (
-    <Animated.View style={[styles.card, { opacity: fadeAnim }]}>
+    <Animated.View style={[styles.card, cardTint && { backgroundColor: cardTint }, { opacity: fadeAnim }]}>
       <View style={[styles.priorityBar, { backgroundColor: priorityColor }]} />
 
       <TouchableOpacity style={styles.body} onPress={() => onPress?.(task)} activeOpacity={0.7}>
@@ -113,6 +127,13 @@ export function TaskCard({ task, onComplete, onPress }) {
                 </Text>
               </View>
             ) : null}
+            {priorityChip && (
+              <View style={[styles.priorityChip, { backgroundColor: priorityChip.bg }]}>
+                <Text style={[styles.priorityChipText, { color: priorityChip.color }]}>
+                  {priorityChip.label}
+                </Text>
+              </View>
+            )}
           </View>
           <Text style={styles.title}>{task.title}</Text>
           {task.notes ? <Text style={styles.notes} numberOfLines={2}>{task.notes}</Text> : null}
@@ -226,6 +247,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
+  priorityChip: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  priorityChipText: { fontSize: 11, fontWeight: '700' },
   timeChip_morning:   { backgroundColor: '#e8f4fd' },
   timeChip_afternoon: { backgroundColor: '#fef9e7' },
   timeChip_evening:   { backgroundColor: '#f4ecf7' },
