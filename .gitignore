@@ -15,6 +15,7 @@ android/local.properties
 
 # Native signing files
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
