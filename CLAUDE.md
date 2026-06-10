@@ -61,7 +61,15 @@ A dynamic personal coach that surfaces what matters daily — not a static list,
 
 ## Run commands
 ```
-npm install
-npx expo start --android
+npm install --legacy-peer-deps
+npx expo run:android
 ```
-Requires Android device or emulator. Read versioned Expo docs at https://docs.expo.dev/versions/v56.0.0/ before writing any code.
+Requires Android device or emulator connected via USB or an Android emulator running.
+`expo run:android` compiles the native Android code locally (bare workflow — no Expo Go).
+First run takes longer; subsequent runs are incremental.
+Read versioned Expo docs at https://docs.expo.dev/versions/v56.0.0/ before writing any code.
+
+## Notifications
+Uses `@notifee/react-native` for fully local scheduled notifications — no Firebase/FCM dependency.
+This keeps the app F-Droid compatible. `expo-task-manager` + `expo-background-fetch` are retained
+for background refresh (they use Android WorkManager, which is also FCM-free).

@@ -1,33 +1,19 @@
 /**
- * Notification service — uses require() inside functions rather than top-level
- * import so Metro doesn't load expo-notifications at bundle time.
- * This allows the app to run in Expo Go (which blocks remote push setup)
- * without crashing. Local scheduled notifications still work in dev builds.
+ * Notification service — uses @notifee/react-native for fully local notifications
+ * with no Firebase / Google Play Services dependency (F-Droid compatible).
+ *
+ * Background periodic refresh still uses expo-task-manager + expo-background-fetch,
+ * both of which use Android WorkManager (FCM-free).
  */
 
-import Constants from 'expo-constants';
+import notifee, {
+  AndroidImportance,
+  TriggerType,
+  RepeatFrequency,
+  AuthorizationStatus,
+} from '@notifee/react-native';
 import { getSetting } from '../db/settings';
 import { getCoachText } from '../components/CoachText';
-
-// Expo Go blocks push notification setup since SDK 53.
-// We detect it here and skip all notification calls entirely,
-// so no errors appear during development. Everything works in a real build.
-const IS_EXPO_GO = Constants.appOwnership === 'expo';
-
-function getNotifications() {
-  if (IS_EXPO_GO) return null;
-  try { return require('expo-notifications'); } catch { return null; }
-}
-
-function getTaskManager() {
-  if (IS_EXPO_GO) return null;
-  try { return require('expo-task-manager'); } catch { return null; }
-}
-
-function getBackgroundFetch() {
-  if (IS_EXPO_GO) return null;
-  try { return require('expo-background-fetch'); } catch { return null; }
-}
 
 const BACKGROUND_TASK = 'DTT_NOTIFICATION_CHECK';
 
@@ -39,150 +25,227 @@ const INTENSITY_CONFIG = {
   5: { summaryCount: 2 },
 };
 
+// Stable IDs for coaching notifications — makes cancel/reschedule simple
+const IDS = {
+  MORNING:  'coaching-morning',
+  MIDDAY_1: 'coaching-midday-1',
+  MIDDAY_2: 'coaching-midday-2',
+  EVENING:  'coaching-evening',
+  WEEKLY:   'coaching-weekly',
+};
+
+// Returns the next timestamp (ms) for a given hour:minute, always in the future
+function nextDailyTimestamp(hour, minute) {
+  const d = new Date();
+  d.setHours(hour, minute, 0, 0);
+  if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+  return d.getTime();
+}
+
+// Returns the next timestamp (ms) for a given weekday + hour:minute
+// weekday: 0 = Sunday, 1 = Monday, ... 6 = Saturday
+function nextWeeklyTimestamp(weekday, hour, minute) {
+  const d = new Date();
+  d.setHours(hour, minute, 0, 0);
+  const daysUntil = (weekday - d.getDay() + 7) % 7;
+  if (daysUntil === 0 && d.getTime() <= Date.now()) {
+    d.setDate(d.getDate() + 7);
+  } else {
+    d.setDate(d.getDate() + daysUntil);
+  }
+  return d.getTime();
+}
+
 export async function requestPermissions() {
-  const Notifications = getNotifications();
-  if (!Notifications) return false;
   try {
-    const { status } = await Notifications.requestPermissionsAsync();
-    return status === 'granted';
+    const settings = await notifee.requestPermission();
+    return settings.authorizationStatus >= AuthorizationStatus.AUTHORIZED;
   } catch { return false; }
 }
 
 export async function createNotificationChannels() {
-  const Notifications = getNotifications();
-  if (!Notifications) return;
   try {
-    await Notifications.setNotificationChannelAsync('briefing', {
+    await notifee.createChannel({
+      id: 'briefing',
       name: 'Daily Briefing',
-      importance: Notifications.AndroidImportance.HIGH,
+      importance: AndroidImportance.HIGH,
+      vibration: true,
       vibrationPattern: [0, 250, 250, 250],
+      lights: true,
       lightColor: '#4a90d9',
     });
-    await Notifications.setNotificationChannelAsync('nudge', {
+    await notifee.createChannel({
+      id: 'nudge',
       name: 'Task Nudges',
-      importance: Notifications.AndroidImportance.DEFAULT,
+      importance: AndroidImportance.DEFAULT,
     });
-    await Notifications.setNotificationChannelAsync('summary', {
+    await notifee.createChannel({
+      id: 'summary',
       name: 'Daily Summary',
-      importance: Notifications.AndroidImportance.DEFAULT,
+      importance: AndroidImportance.DEFAULT,
     });
-    await Notifications.setNotificationChannelAsync('review', {
+    await notifee.createChannel({
+      id: 'review',
       name: 'Weekly Review',
-      importance: Notifications.AndroidImportance.HIGH,
+      importance: AndroidImportance.HIGH,
     });
   } catch { /* unavailable */ }
 }
 
-export function setupNotificationCategories() {
-  const Notifications = getNotifications();
-  if (!Notifications) return;
-  try {
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-      }),
-    });
-    Notifications.setNotificationCategoryAsync('task_reminder', [
-      { identifier: 'complete', buttonTitle: 'Mark Done' },
-      { identifier: 'snooze_15', buttonTitle: 'Snooze 15m' },
-      { identifier: 'snooze_60', buttonTitle: 'Snooze 1h' },
-    ]);
-  } catch { /* unavailable */ }
-}
+// No-op: notifee shows foreground notifications by default
+// Foreground + background event handling is wired up in app/_layout.js
+export function setupNotificationCategories() {}
+
+const TASK_ACTIONS = [
+  { title: 'Mark Done', pressAction: { id: 'complete' } },
+  { title: 'Snooze 15m', pressAction: { id: 'snooze_15' } },
+  { title: 'Snooze 1h',  pressAction: { id: 'snooze_60' } },
+];
 
 export async function scheduleCoachingNotifications() {
-  const Notifications = getNotifications();
-  if (!Notifications) return;
   try {
-    const all = await Notifications.getAllScheduledNotificationsAsync();
-    for (const n of all) {
-      if (n.content.data?.coaching) {
-        await Notifications.cancelScheduledNotificationAsync(n.identifier);
-      }
-    }
+    // Cancel existing coaching notifications by stable ID
+    await Promise.all(Object.values(IDS).map(id =>
+      notifee.cancelTriggerNotification(id).catch(() => {})
+    ));
 
     const intensity = parseInt(getSetting('notification_intensity') ?? '3', 10);
-    const persona = getSetting('coach_persona') ?? 'coach';
-    const coach = getCoachText(persona);
-    const config = INTENSITY_CONFIG[intensity] ?? INTENSITY_CONFIG[3];
+    const persona   = getSetting('coach_persona') ?? 'coach';
+    const coach     = getCoachText(persona);
+    const config    = INTENSITY_CONFIG[intensity] ?? INTENSITY_CONFIG[3];
 
+    // ── Morning briefing ──────────────────────────────────────────────────────
     const morningTime = getSetting('morning_briefing_time') ?? '07:00';
     const [mh, mm] = morningTime.split(':').map(Number);
-    await Notifications.scheduleNotificationAsync({
-      content: {
+    await notifee.createTriggerNotification(
+      {
+        id: IDS.MORNING,
         title: 'Do The Thing',
         body: "Here's your day — tap to see your list.",
         data: { coaching: 'morning' },
-        categoryIdentifier: 'task_reminder',
+        android: {
+          channelId: 'briefing',
+          pressAction: { id: 'default' },
+        },
       },
-      trigger: { type: 'daily', hour: mh, minute: mm, channelId: 'briefing' },
-    });
+      {
+        type: TriggerType.TIMESTAMP,
+        timestamp: nextDailyTimestamp(mh, mm),
+        repeatFrequency: RepeatFrequency.DAILY,
+        alarmManager: { allowWhileIdle: true },
+      }
+    );
 
+    // ── Mid-day check-ins ─────────────────────────────────────────────────────
     const summaryTime1 = getSetting('summary_time_1') ?? '12:00';
     const summaryTime2 = getSetting('summary_time_2') ?? '17:00';
-    const summaryTimes = [summaryTime1, summaryTime2].slice(0, config.summaryCount);
-    for (const t of summaryTimes) {
-      const [h, m] = t.split(':').map(Number);
-      await Notifications.scheduleNotificationAsync({
-        content: {
+    const summarySlots = [
+      { id: IDS.MIDDAY_1, time: summaryTime1 },
+      { id: IDS.MIDDAY_2, time: summaryTime2 },
+    ].slice(0, config.summaryCount);
+
+    for (const { id, time } of summarySlots) {
+      const [h, m] = time.split(':').map(Number);
+      await notifee.createTriggerNotification(
+        {
+          id,
           title: 'Do The Thing',
           body: coach.nudge(0),
           data: { coaching: 'midday' },
+          android: {
+            channelId: 'nudge',
+            actions: TASK_ACTIONS,
+            pressAction: { id: 'default' },
+          },
         },
-        trigger: { type: 'daily', hour: h, minute: m, channelId: 'nudge' },
-      });
+        {
+          type: TriggerType.TIMESTAMP,
+          timestamp: nextDailyTimestamp(h, m),
+          repeatFrequency: RepeatFrequency.DAILY,
+          alarmManager: { allowWhileIdle: true },
+        }
+      );
     }
 
+    // ── Evening wrap-up ───────────────────────────────────────────────────────
     const bedtime = getSetting('bedtime') ?? '22:00';
     const [bh, bm] = bedtime.split(':').map(Number);
     const wrapHour = bm >= 15 ? bh : bh - 1;
-    const wrapMin = bm >= 15 ? bm - 15 : bm + 45;
-    await Notifications.scheduleNotificationAsync({
-      content: {
+    const wrapMin  = bm >= 15 ? bm - 15 : bm + 45;
+    await notifee.createTriggerNotification(
+      {
+        id: IDS.EVENING,
         title: 'Day Wrap-Up',
         body: "Here's how today went — tap to review.",
         data: { coaching: 'evening' },
+        android: {
+          channelId: 'summary',
+          pressAction: { id: 'default' },
+        },
       },
-      trigger: { type: 'daily', hour: wrapHour, minute: wrapMin, channelId: 'summary' },
-    });
+      {
+        type: TriggerType.TIMESTAMP,
+        timestamp: nextDailyTimestamp(wrapHour, wrapMin),
+        repeatFrequency: RepeatFrequency.DAILY,
+        alarmManager: { allowWhileIdle: true },
+      }
+    );
 
-    const reviewDay = parseInt(getSetting('weekly_review_day') ?? '0', 10);
+    // ── Weekly review (Sunday by default) ────────────────────────────────────
+    const reviewDay  = parseInt(getSetting('weekly_review_day') ?? '0', 10);
     const reviewTime = getSetting('weekly_review_time') ?? '20:00';
     const [rh, rm] = reviewTime.split(':').map(Number);
-    await Notifications.scheduleNotificationAsync({
-      content: {
+    await notifee.createTriggerNotification(
+      {
+        id: IDS.WEEKLY,
         title: 'Weekly Review',
         body: "How did your week go? Tap to find out.",
         data: { coaching: 'weekly' },
+        android: {
+          channelId: 'review',
+          pressAction: { id: 'default' },
+        },
       },
-      trigger: { type: 'weekly', weekday: reviewDay + 1, hour: rh, minute: rm, channelId: 'review' },
-    });
+      {
+        type: TriggerType.TIMESTAMP,
+        timestamp: nextWeeklyTimestamp(reviewDay, rh, rm),
+        repeatFrequency: RepeatFrequency.WEEKLY,
+        alarmManager: { allowWhileIdle: true },
+      }
+    );
   } catch (e) {
     console.log('scheduleCoachingNotifications skipped:', e.message);
   }
 }
 
-export async function scheduleTaskNotification({ taskId, title, body, trigger, channelId = 'nudge' }) {
-  const Notifications = getNotifications();
-  if (!Notifications) return null;
+export async function scheduleTaskNotification({ taskId, title, body, triggerTimestamp, channelId = 'nudge' }) {
   try {
-    return Notifications.scheduleNotificationAsync({
-      content: { title, body, data: { taskId }, categoryIdentifier: 'task_reminder' },
-      trigger: { ...trigger, channelId },
-    });
+    return await notifee.createTriggerNotification(
+      {
+        title,
+        body,
+        data: { taskId: String(taskId) },
+        android: {
+          channelId,
+          actions: TASK_ACTIONS,
+          pressAction: { id: 'default' },
+        },
+      },
+      {
+        type: TriggerType.TIMESTAMP,
+        timestamp: triggerTimestamp,
+        alarmManager: { allowWhileIdle: true },
+      }
+    );
   } catch { return null; }
 }
 
 export async function cancelAllForTask(taskId) {
-  const Notifications = getNotifications();
-  if (!Notifications) return;
   try {
-    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-    for (const n of scheduled) {
-      if (n.content.data?.taskId === taskId) {
-        await Notifications.cancelScheduledNotificationAsync(n.identifier);
+    const triggers = await notifee.getTriggerNotifications();
+    for (const { notification } of triggers) {
+      if (notification.data?.taskId === String(taskId)) {
+        await notifee.cancelTriggerNotification(notification.id);
       }
     }
   } catch { /* unavailable */ }
@@ -194,25 +257,20 @@ export async function snoozeNotification(taskId, title, snoozeMinutes = 15) {
     taskId,
     title: `(Snoozed) ${title}`,
     body: 'Reminder: this is still on your list.',
-    trigger: { seconds: snoozeMinutes * 60 },
+    triggerTimestamp: Date.now() + snoozeMinutes * 60 * 1000,
   });
 }
 
+// Refreshes mid-day nudge text to reflect current task count + critical items
 async function rescheduleMidayNudges(taskCount, criticalTasks = []) {
-  const Notifications = getNotifications();
-  if (!Notifications) return;
   try {
-    const all = await Notifications.getAllScheduledNotificationsAsync();
-    for (const n of all) {
-      if (n.content.data?.coaching === 'midday') {
-        await Notifications.cancelScheduledNotificationAsync(n.identifier);
-      }
-    }
+    await notifee.cancelTriggerNotification(IDS.MIDDAY_1).catch(() => {});
+    await notifee.cancelTriggerNotification(IDS.MIDDAY_2).catch(() => {});
 
     const intensity = parseInt(getSetting('notification_intensity') ?? '3', 10);
-    const persona = getSetting('coach_persona') ?? 'coach';
-    const coach = getCoachText(persona);
-    const config = INTENSITY_CONFIG[intensity] ?? INTENSITY_CONFIG[3];
+    const persona   = getSetting('coach_persona') ?? 'coach';
+    const coach     = getCoachText(persona);
+    const config    = INTENSITY_CONFIG[intensity] ?? INTENSITY_CONFIG[3];
 
     let body = coach.nudge(taskCount);
     if (criticalTasks.length > 0) {
@@ -226,18 +284,31 @@ async function rescheduleMidayNudges(taskCount, criticalTasks = []) {
 
     const summaryTime1 = getSetting('summary_time_1') ?? '12:00';
     const summaryTime2 = getSetting('summary_time_2') ?? '17:00';
-    const summaryTimes = [summaryTime1, summaryTime2].slice(0, config.summaryCount);
+    const summarySlots = [
+      { id: IDS.MIDDAY_1, time: summaryTime1 },
+      { id: IDS.MIDDAY_2, time: summaryTime2 },
+    ].slice(0, config.summaryCount);
 
-    for (const t of summaryTimes) {
-      const [h, m] = t.split(':').map(Number);
-      await Notifications.scheduleNotificationAsync({
-        content: {
+    for (const { id, time } of summarySlots) {
+      const [h, m] = time.split(':').map(Number);
+      await notifee.createTriggerNotification(
+        {
+          id,
           title: 'Do The Thing',
           body,
           data: { coaching: 'midday' },
+          android: {
+            channelId: 'nudge',
+            pressAction: { id: 'default' },
+          },
         },
-        trigger: { type: 'daily', hour: h, minute: m, channelId: 'nudge' },
-      });
+        {
+          type: TriggerType.TIMESTAMP,
+          timestamp: nextDailyTimestamp(h, m),
+          repeatFrequency: RepeatFrequency.DAILY,
+          alarmManager: { allowWhileIdle: true },
+        }
+      );
     }
   } catch (e) {
     console.log('rescheduleMidayNudges error:', e.message);
@@ -256,9 +327,11 @@ export async function refreshMidayNudges() {
   }
 }
 
+// Background task uses expo-task-manager + expo-background-fetch
+// Both rely on Android WorkManager — no Google Play Services required
 export async function registerBackgroundTask() {
-  const TaskManager = getTaskManager();
-  const BackgroundFetch = getBackgroundFetch();
+  const TaskManager   = (() => { try { return require('expo-task-manager');    } catch { return null; } })();
+  const BackgroundFetch = (() => { try { return require('expo-background-fetch'); } catch { return null; } })();
   if (!TaskManager || !BackgroundFetch) return;
   try {
     TaskManager.defineTask(BACKGROUND_TASK, async () => {

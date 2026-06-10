@@ -3,9 +3,7 @@ import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { TouchableOpacity, Text } from 'react-native';
 import { initDb } from '../src/db/schema';
-import Constants from 'expo-constants';
-
-const IS_EXPO_GO = Constants.appOwnership === 'expo';
+import notifee, { EventType } from '@notifee/react-native';
 
 // Separated into its own component so useRouter runs inside the navigation tree
 function SettingsButton() {
@@ -17,32 +15,50 @@ function SettingsButton() {
   );
 }
 
-// Routes notification taps to the appropriate screen
+function routeFromCoachingData(data, router) {
+  if (!data) return;
+  if (data.coaching === 'evening' || data.coaching === 'weekly') {
+    router.push('/review');
+  } else if (data.coaching === 'morning' || data.coaching === 'midday') {
+    router.push('/');
+  }
+}
+
+// Routes notification taps to the appropriate screen (foreground + cold-start)
 function NotificationHandler() {
   const router = useRouter();
+
   useEffect(() => {
-    if (IS_EXPO_GO) return;
-    let sub;
-    try {
-      const Notifications = require('expo-notifications');
-      sub = Notifications.addNotificationResponseReceivedListener(response => {
-        const data = response.notification.request.content.data;
-        if (data?.coaching === 'evening' || data?.coaching === 'weekly') {
-          router.push('/review');
-        } else if (data?.coaching === 'morning' || data?.coaching === 'midday') {
-          router.push('/');
-        }
-      });
-    } catch {}
-    return () => sub?.remove();
+    // App was opened from a killed state by tapping a notification
+    notifee.getInitialNotification()
+      .then(initial => {
+        if (initial) routeFromCoachingData(initial.notification?.data, router);
+      })
+      .catch(() => {});
+
+    // App is in the foreground — handle taps and action button presses
+    const unsub = notifee.onForegroundEvent(({ type, detail }) => {
+      if (type === EventType.PRESS) {
+        routeFromCoachingData(detail.notification?.data, router);
+      }
+    });
+
+    return () => unsub();
   }, []);
+
   return null;
 }
 
 async function setupNotifications() {
   try {
-    const { requestPermissions, createNotificationChannels, setupNotificationCategories, registerBackgroundTask, scheduleCoachingNotifications, refreshMidayNudges } =
-      await import('../src/notifications/notificationService');
+    const {
+      requestPermissions,
+      createNotificationChannels,
+      setupNotificationCategories,
+      registerBackgroundTask,
+      scheduleCoachingNotifications,
+      refreshMidayNudges,
+    } = await import('../src/notifications/notificationService');
     const granted = await requestPermissions();
     await createNotificationChannels();
     setupNotificationCategories();
@@ -52,10 +68,25 @@ async function setupNotifications() {
     }
     registerBackgroundTask().catch(() => {});
   } catch (e) {
-    // Notifications unavailable in this environment (e.g. Expo Go remote push restriction)
     console.log('Notifications setup skipped:', e.message);
   }
 }
+
+// Handle notification action presses (snooze, etc.) when app is in background/killed.
+// Must be registered at module level, outside React components.
+notifee.onBackgroundEvent(async ({ type, detail }) => {
+  if (type === EventType.ACTION_PRESS) {
+    const { pressAction, notification } = detail;
+    const taskId = notification?.data?.taskId;
+    if (taskId) {
+      try {
+        const { snoozeNotification } = await import('../src/notifications/notificationService');
+        if (pressAction.id === 'snooze_15') await snoozeNotification(taskId, notification.title ?? '', 15);
+        if (pressAction.id === 'snooze_60') await snoozeNotification(taskId, notification.title ?? '', 60);
+      } catch { /* unavailable */ }
+    }
+  }
+});
 
 export default function RootLayout() {
   useEffect(() => {

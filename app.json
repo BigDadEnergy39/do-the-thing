@@ -24,13 +24,6 @@
     "plugins": [
       "expo-router",
       [
-        "expo-notifications",
-        {
-          "color": "#4a90d9",
-          "sounds": []
-        }
-      ],
-      [
         "expo-sqlite",
         {
           "enableFTS": true
