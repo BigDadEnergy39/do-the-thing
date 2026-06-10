@@ -61,7 +61,7 @@ export default function AllTasksScreen() {
               <TouchableOpacity
                 key={task.id}
                 style={styles.row}
-                onPress={() => router.push({ pathname: '/add', params: { editId: task.id } })}
+                onPress={() => router.push({ pathname: '/task/[id]', params: { id: task.id } })}
                 activeOpacity={0.7}
               >
                 <View style={[styles.priorityDot, { backgroundColor: priorityColor }]} />

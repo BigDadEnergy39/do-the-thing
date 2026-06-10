@@ -225,12 +225,13 @@ export default function AddTaskScreen() {
     };
 
     if (taskType === 'date_anchor') {
-      // Create one task per action item
       if (!anchorDate) { Alert.alert('Missing Date', 'Please enter the event date (MM-DD).'); return; }
       const validActions = anchorActions.filter(a => a.description.trim());
       if (!validActions.length) { Alert.alert('Missing Action', 'Add at least one action for this date.'); return; }
-      for (const action of validActions) {
-        createTask({
+      if (isEditing) {
+        // Update the existing task using the first (only) action
+        const action = validActions[0];
+        updateTask(Number(editId), {
           ...taskData,
           title: action.description.trim(),
           task_type: 'date_anchor',
@@ -240,6 +241,20 @@ export default function AddTaskScreen() {
           anchor_label: anchorLabel || anchorDate,
           escalate_days_out: leadToDays(action.leadAmount, action.leadUnit),
         });
+      } else {
+        // Create one task per action item
+        for (const action of validActions) {
+          createTask({
+            ...taskData,
+            title: action.description.trim(),
+            task_type: 'date_anchor',
+            base_priority: action.priority,
+            priority_ceiling: action.priority,
+            anchor_date: anchorDate,
+            anchor_label: anchorLabel || anchorDate,
+            escalate_days_out: leadToDays(action.leadAmount, action.leadUnit),
+          });
+        }
       }
     } else if (isEditing) {
       updateTask(Number(editId), taskData);
