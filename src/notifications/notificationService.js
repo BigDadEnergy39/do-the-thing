@@ -340,6 +340,9 @@ export async function registerBackgroundTask() {
         if (hour >= 6 && hour < 9) {
           await refreshMidayNudges();
         }
+        // Daily auto-backup (runs whenever background task fires, deduped by date)
+        const { saveAutoBackup } = require('../db/backup');
+        await saveAutoBackup().catch(() => {});
       } catch (e) {
         console.log('Background task error:', e.message);
       }

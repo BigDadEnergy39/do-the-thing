@@ -10,6 +10,8 @@ import { useRouter } from 'expo-router';
 import { getSetting, setSetting, getAllSettings } from '../src/db/settings';
 import { PERSONA_OPTIONS } from '../src/components/CoachText';
 import { scheduleCoachingNotifications } from '../src/notifications/notificationService';
+import notifee, { TriggerType } from '@notifee/react-native';
+import { shareBackup, pickAndImportBackup, getLastAutoBackupInfo, saveAutoBackup } from '../src/db/backup';
 import { COLORS } from '../src/components/theme';
 
 const PRESET_COLORS = [
@@ -33,10 +35,13 @@ export default function SettingsScreen() {
   const [editingCat, setEditingCat] = useState(null);
   const [catName, setCatName] = useState('');
   const [catColor, setCatColor] = useState(PRESET_COLORS[0]);
+  const [lastBackup, setLastBackup] = useState(null);
+  const [backupBusy, setBackupBusy] = useState(false);
 
   const refresh = () => {
     setCategories(getAllCategories());
     setSettings(getAllSettings());
+    getLastAutoBackupInfo().then(setLastBackup).catch(() => {});
   };
 
   useFocusEffect(React.useCallback(() => { refresh(); }, []));
@@ -49,6 +54,77 @@ export default function SettingsScreen() {
   const handleSaveNotificationSettings = async () => {
     await scheduleCoachingNotifications();
     Alert.alert('Saved', 'Notification schedule updated.');
+  };
+
+  const handleTestNotification = async () => {
+    try {
+      await notifee.createTriggerNotification(
+        {
+          title: 'Do The Thing — Test',
+          body: 'Notifications are working! Tap to go to your list.',
+          data: { coaching: 'morning' },
+          android: { channelId: 'briefing', pressAction: { id: 'default' } },
+        },
+        {
+          type: TriggerType.TIMESTAMP,
+          timestamp: Date.now() + 10_000,
+          alarmManager: { allowWhileIdle: true },
+        }
+      );
+      Alert.alert('Test scheduled', 'A notification will arrive in ~10 seconds. Background the app to see it.');
+    } catch (e) {
+      Alert.alert('Error', e.message);
+    }
+  };
+
+  const handleExport = async () => {
+    setBackupBusy(true);
+    try {
+      await shareBackup();
+    } catch (e) {
+      Alert.alert('Export failed', e.message);
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const handleImport = () => {
+    Alert.alert(
+      'Import Backup',
+      'This will replace ALL current tasks, categories, and settings with the backup file. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Import', style: 'destructive', onPress: async () => {
+            setBackupBusy(true);
+            try {
+              const result = await pickAndImportBackup();
+              if (result.success) {
+                Alert.alert('Import complete', 'All data has been restored. Restart the app to see your tasks.');
+              }
+            } catch (e) {
+              Alert.alert('Import failed', e.message);
+            } finally {
+              setBackupBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleBackupNow = async () => {
+    setBackupBusy(true);
+    try {
+      await saveAutoBackup();
+      const info = await getLastAutoBackupInfo();
+      setLastBackup(info);
+      Alert.alert('Backup saved', 'A backup has been saved to your device.');
+    } catch (e) {
+      Alert.alert('Backup failed', e.message);
+    } finally {
+      setBackupBusy(false);
+    }
   };
 
   // Category handlers
@@ -151,6 +227,9 @@ export default function SettingsScreen() {
       <TouchableOpacity style={styles.applyBtn} onPress={handleSaveNotificationSettings}>
         <Text style={styles.applyBtnText}>Apply Notification Schedule</Text>
       </TouchableOpacity>
+      <TouchableOpacity style={styles.testBtn} onPress={handleTestNotification}>
+        <Text style={styles.testBtnText}>🔔 Send Test Notification (10s)</Text>
+      </TouchableOpacity>
 
       {/* ── Categories ── */}
       <Text style={[styles.sectionHeader, styles.sectionSpacing]}>Categories</Text>
@@ -171,6 +250,43 @@ export default function SettingsScreen() {
       <TouchableOpacity style={styles.addCatBtn} onPress={openAdd}>
         <Text style={styles.addCatBtnText}>+ Add Category</Text>
       </TouchableOpacity>
+
+      {/* ── Backup & Restore ── */}
+      <Text style={[styles.sectionHeader, styles.sectionSpacing]}>Backup &amp; Restore</Text>
+      <Text style={styles.sectionDesc}>
+        Auto-backup runs daily in the background, keeping the last 7 days on your device.
+        Use Export to save a copy somewhere safe.
+      </Text>
+      {lastBackup && (
+        <View style={styles.backupInfoRow}>
+          <Text style={styles.backupInfoText}>
+            Last auto-backup: {lastBackup.filename.replace('dtt-backup-', '').replace('.json', '')}
+          </Text>
+        </View>
+      )}
+      <View style={styles.backupBtnRow}>
+        <TouchableOpacity
+          style={[styles.backupBtn, backupBusy && styles.backupBtnDisabled]}
+          onPress={handleBackupNow}
+          disabled={backupBusy}
+        >
+          <Text style={styles.backupBtnText}>💾 Backup Now</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.backupBtn, backupBusy && styles.backupBtnDisabled]}
+          onPress={handleExport}
+          disabled={backupBusy}
+        >
+          <Text style={styles.backupBtnText}>📤 Export</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.backupBtn, styles.backupBtnImport, backupBusy && styles.backupBtnDisabled]}
+          onPress={handleImport}
+          disabled={backupBusy}
+        >
+          <Text style={[styles.backupBtnText, styles.backupBtnImportText]}>📥 Import</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* ── About ── */}
       <Text style={[styles.sectionHeader, styles.sectionSpacing]}>About</Text>
@@ -263,6 +379,11 @@ const styles = StyleSheet.create({
     padding: 14, alignItems: 'center', marginTop: 8, marginBottom: 4,
   },
   applyBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  testBtn: {
+    backgroundColor: '#fff', borderRadius: 10, borderWidth: 1,
+    borderColor: COLORS.border, padding: 14, alignItems: 'center', marginTop: 4,
+  },
+  testBtnText: { color: COLORS.subtext, fontWeight: '600', fontSize: 14 },
 
   // Categories
   catRow: {
@@ -288,6 +409,21 @@ const styles = StyleSheet.create({
   allTasksBtnTitle: { fontSize: 16, fontWeight: '600', color: COLORS.text, marginBottom: 2 },
   allTasksBtnDesc: { fontSize: 13, color: COLORS.subtext },
   allTasksArrow: { fontSize: 24, color: '#ccc', marginLeft: 8 },
+
+  backupInfoRow: {
+    backgroundColor: '#fff', borderRadius: 10, padding: 12,
+    marginBottom: 10, borderWidth: 1, borderColor: COLORS.border,
+  },
+  backupInfoText: { fontSize: 13, color: COLORS.subtext },
+  backupBtnRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  backupBtn: {
+    flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 14,
+    alignItems: 'center', borderWidth: 1, borderColor: COLORS.border,
+  },
+  backupBtnImport: { borderColor: '#e74c3c22', backgroundColor: '#fff8f8' },
+  backupBtnDisabled: { opacity: 0.5 },
+  backupBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.text },
+  backupBtnImportText: { color: '#e74c3c' },
 
   aboutCard: { backgroundColor: '#fff', borderRadius: 12, padding: 20 },
   aboutText: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: 6 },
