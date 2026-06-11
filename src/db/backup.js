@@ -7,7 +7,7 @@
  * pruneOldBackups() — keeps only the last N auto-backup files
  */
 
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { getDb } from './schema';
@@ -23,7 +23,7 @@ export function exportBackup() {
 
   const categories    = db.getAllSync('SELECT * FROM categories');
   const tasks         = db.getAllSync('SELECT * FROM tasks');
-  const completions   = db.getAllSync('SELECT * FROM task_completions');
+  const completions   = db.getAllSync('SELECT * FROM completions');
   const timedSessions = db.getAllSync('SELECT * FROM timed_sessions');
   const habitCheckins = db.getAllSync('SELECT * FROM habit_checkins');
   const settings      = db.getAllSync('SELECT * FROM settings');
@@ -46,7 +46,7 @@ export function importBackup(jsonString) {
     // Wipe existing data in dependency order
     db.runSync('DELETE FROM habit_checkins');
     db.runSync('DELETE FROM timed_sessions');
-    db.runSync('DELETE FROM task_completions');
+    db.runSync('DELETE FROM completions');
     db.runSync('DELETE FROM tasks');
     db.runSync('DELETE FROM categories');
     db.runSync('DELETE FROM settings');
@@ -94,16 +94,16 @@ export function importBackup(jsonString) {
     // Restore completions
     for (const row of (completions ?? [])) {
       db.runSync(
-        'INSERT INTO task_completions (id, task_id, completed_at, due_date_completed, seconds_logged) VALUES (?,?,?,?,?)',
-        [row.id, row.task_id, row.completed_at, row.due_date_completed ?? null, row.seconds_logged ?? 0]
+        'INSERT INTO completions (id, task_id, completed_at, scheduled_for, seconds_logged) VALUES (?,?,?,?,?)',
+        [row.id, row.task_id, row.completed_at, row.scheduled_for ?? null, row.seconds_logged ?? 0]
       );
     }
 
     // Restore timed sessions
     for (const row of (timedSessions ?? [])) {
       db.runSync(
-        'INSERT INTO timed_sessions (id, task_id, started_at, ended_at, seconds_elapsed) VALUES (?,?,?,?,?)',
-        [row.id, row.task_id, row.started_at, row.ended_at ?? null, row.seconds_elapsed ?? 0]
+        'INSERT INTO timed_sessions (id, task_id, started_at, ended_at, date) VALUES (?,?,?,?,?)',
+        [row.id, row.task_id, row.started_at, row.ended_at ?? null, row.date ?? '']
       );
     }
 
