@@ -227,8 +227,10 @@ export function buildDailyList() {
     // ── Unscheduled ───────────────────────────────────────────────────────
     // One-time to-dos: hide permanently once completed (any completion, not
     // just today's). wasCompletedToday already handled today's case above.
+    // snooze_until is used for follow-up tasks — hide until the target date.
     if (task.task_type === 'unscheduled') {
-      if (!last) include = true;
+      const snoozedUntil = task.snooze_until ? toDate(task.snooze_until) : null;
+      if (!last && (!snoozedUntil || snoozedUntil <= today)) include = true;
     }
 
     // ── Deadline ──────────────────────────────────────────────────────────

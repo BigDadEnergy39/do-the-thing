@@ -21,7 +21,7 @@ const PRIORITY_CARD_TINT = {
   4: '#fff8f8', // very light red
 };
 
-export function TaskCard({ task, onComplete, onPress }) {
+export function TaskCard({ task, onComplete, onFollowUp, onPress }) {
   const [timerRunning, setTimerRunning] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [secondsToday, setSecondsToday] = useState(0);
@@ -68,6 +68,20 @@ export function TaskCard({ task, onComplete, onPress }) {
   };
 
   const handleComplete = () => {
+    if (task.task_type === 'unscheduled' && onFollowUp) {
+      // Let the parent show the follow-up prompt before completing
+      onFollowUp(task, () => {
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start(() => {
+          recordCompletion(task.id, task.due_date ?? null, secondsToday);
+          onComplete?.(task.id);
+        });
+      });
+      return;
+    }
     Animated.timing(fadeAnim, {
       toValue: 0,
       duration: 300,

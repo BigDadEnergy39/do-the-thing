@@ -135,7 +135,7 @@ export function getLastCompletion(taskId) {
 // Convert a JS Date to SQLite datetime string ('YYYY-MM-DD HH:MM:SS') in UTC.
 // All completions are stored as UTC via datetime('now'), so queries must also
 // use UTC boundaries — derived from local midnight — to match correctly.
-function toSqliteDatetime(d) {
+export function toSqliteDatetime(d) {
   return d.toISOString().replace('T', ' ').slice(0, 19);
 }
 

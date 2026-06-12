@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  RefreshControl, SectionList,
+  RefreshControl, SectionList, Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useDailyList } from '../src/hooks/useDailyList';
@@ -12,6 +12,7 @@ import { FastCapture } from '../src/components/FastCapture';
 import { COLORS } from '../src/components/theme';
 import { getSetting } from '../src/db/settings';
 import { getCoachText } from '../src/components/CoachText';
+import { createTask, toSqliteDatetime } from '../src/db/tasks';
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -20,6 +21,8 @@ export default function TodayScreen() {
   const [backlogExpanded, setBacklogExpanded] = useState(false);
   const [completedExpanded, setCompletedExpanded] = useState(false);
   const [fastCaptureVisible, setFastCaptureVisible] = useState(false);
+  const [followUpTask, setFollowUpTask] = useState(null);
+  const completePendingRef = useRef(null);
 
   const persona = getSetting('coach_persona') ?? 'coach';
   const coach = getCoachText(persona);
@@ -31,6 +34,44 @@ export default function TodayScreen() {
   const handleComplete = (taskId) => {
     setCompletedIds(prev => new Set([...prev, taskId]));
     setTimeout(refresh, 400);
+  };
+
+  const handleFollowUp = (task, completeNow) => {
+    completePendingRef.current = completeNow;
+    setFollowUpTask(task);
+  };
+
+  const handleFollowUpChoice = (days) => {
+    // Complete the original task
+    completePendingRef.current?.();
+    completePendingRef.current = null;
+
+    // Create the follow-up task if an interval was chosen
+    if (days > 0 && followUpTask) {
+      const target = new Date();
+      target.setDate(target.getDate() + days);
+      target.setHours(0, 0, 0, 0);
+      createTask({
+        title: `Follow up: ${followUpTask.title}`,
+        notes: followUpTask.notes ?? null,
+        category_id: followUpTask.category_id ?? null,
+        task_type: 'unscheduled',
+        base_priority: followUpTask.base_priority,
+        priority_ceiling: followUpTask.base_priority,
+        snooze_until: toSqliteDatetime(target),
+        due_date: null, due_time: null,
+        escalate_days_out: null, escalate_to_priority: null,
+        recur_rule: null, recur_persistent: 0, recur_display_overdue: 0,
+        rand_min_days: null, rand_max_days: null, rand_next_date: null, rand_persistent: 0,
+        anchor_date: null, anchor_label: null,
+        goal_minutes: null, goal_reset: 'daily',
+        auto_hide_after_skips: null, duration_intent: null,
+        preferred_time: followUpTask.preferred_time ?? null,
+        habit_window: null,
+      });
+    }
+
+    setFollowUpTask(null);
   };
 
   const today = new Date().toLocaleDateString('en-US', {
@@ -70,12 +111,14 @@ export default function TodayScreen() {
                 key={item.id}
                 task={item}
                 onComplete={handleComplete}
+                onFollowUp={handleFollowUp}
                 onPress={(t) => router.push(`/task/${t.id}`)}
               />
             : <TaskCard
                 key={item.id}
                 task={item}
                 onComplete={handleComplete}
+                onFollowUp={handleFollowUp}
                 onPress={(t) => router.push(`/task/${t.id}`)}
               />
         ))}
@@ -204,11 +247,61 @@ export default function TodayScreen() {
         onClose={() => setFastCaptureVisible(false)}
         onSaved={refresh}
       />
+
+      {/* Follow-up prompt */}
+      <Modal visible={!!followUpTask} transparent animationType="fade">
+        <View style={styles.followUpOverlay}>
+          <View style={styles.followUpSheet}>
+            <Text style={styles.followUpTitle}>✓ Done!</Text>
+            <Text style={styles.followUpBody}>Add a follow-up reminder?</Text>
+            {[
+              { label: 'In 3 days', days: 3 },
+              { label: 'In 1 week', days: 7 },
+              { label: 'In 2 weeks', days: 14 },
+            ].map(({ label, days }) => (
+              <TouchableOpacity
+                key={days}
+                style={styles.followUpBtn}
+                onPress={() => handleFollowUpChoice(days)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.followUpBtnText}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.followUpSkip}
+              onPress={() => handleFollowUpChoice(0)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.followUpSkipText}>No follow-up needed</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  followUpOverlay: {
+    flex: 1, backgroundColor: '#00000066',
+    justifyContent: 'center', alignItems: 'center', padding: 32,
+  },
+  followUpSheet: {
+    backgroundColor: '#fff', borderRadius: 16,
+    padding: 24, width: '100%',
+  },
+  followUpTitle: { fontSize: 22, fontWeight: '700', color: COLORS.success, marginBottom: 4 },
+  followUpBody: { fontSize: 16, color: COLORS.subtext, marginBottom: 20 },
+  followUpBtn: {
+    backgroundColor: COLORS.primary + '15', borderRadius: 12,
+    padding: 14, alignItems: 'center', marginBottom: 10,
+    borderWidth: 1, borderColor: COLORS.primary + '30',
+  },
+  followUpBtnText: { fontSize: 15, fontWeight: '600', color: COLORS.primary },
+  followUpSkip: { padding: 12, alignItems: 'center', marginTop: 4 },
+  followUpSkipText: { fontSize: 14, color: COLORS.subtext },
+
   container: { flex: 1, backgroundColor: COLORS.background },
   scrollContent: { paddingTop: 8, paddingBottom: 120 },
   header: { paddingHorizontal: 20, paddingBottom: 12 },
