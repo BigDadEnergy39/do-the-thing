@@ -110,6 +110,16 @@ export function recordCompletion(taskId, scheduledFor = null, secondsLogged = 0)
   db.runSync(`UPDATE tasks SET skip_count = 0, last_skip_date = NULL WHERE id = ?`, [taskId]);
 }
 
+export function undoCompletion(taskId) {
+  const db = getDb();
+  db.runSync(
+    `DELETE FROM completions WHERE id = (
+       SELECT id FROM completions WHERE task_id = ? ORDER BY completed_at DESC LIMIT 1
+     )`,
+    [taskId]
+  );
+}
+
 export function getCompletionsForTask(taskId, sinceDate = null) {
   const db = getDb();
   if (sinceDate) {

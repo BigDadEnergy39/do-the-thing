@@ -12,7 +12,7 @@ import { FastCapture } from '../src/components/FastCapture';
 import { COLORS } from '../src/components/theme';
 import { getSetting } from '../src/db/settings';
 import { getCoachText } from '../src/components/CoachText';
-import { createTask, toSqliteDatetime } from '../src/db/tasks';
+import { createTask, toSqliteDatetime, undoCompletion } from '../src/db/tasks';
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -34,6 +34,12 @@ export default function TodayScreen() {
   const handleComplete = (taskId) => {
     setCompletedIds(prev => new Set([...prev, taskId]));
     setTimeout(refresh, 400);
+  };
+
+  const handleUndo = (taskId) => {
+    undoCompletion(taskId);
+    setCompletedIds(prev => { const s = new Set(prev); s.delete(taskId); return s; });
+    refresh();
   };
 
   const handleFollowUp = (task, completeNow) => {
@@ -203,20 +209,28 @@ export default function TodayScreen() {
               <Text style={styles.sectionChevron}>{completedExpanded ? '▲' : '▼'}</Text>
             </TouchableOpacity>
             {completedExpanded && completedToday.map(item => (
-              <TouchableOpacity
-                key={item.id}
-                style={styles.completedRow}
-                onPress={() => router.push(`/task/${item.id}`)}
-                activeOpacity={0.6}
-              >
-                <Text style={styles.completedCheck}>✓</Text>
-                <View style={styles.completedBody}>
-                  {item.category_name && (
-                    <Text style={styles.completedCat}>{item.category_name}</Text>
-                  )}
-                  <Text style={styles.completedTitle}>{item.title}</Text>
-                </View>
-              </TouchableOpacity>
+              <View key={item.id} style={styles.completedRow}>
+                <TouchableOpacity
+                  style={styles.completedMain}
+                  onPress={() => router.push(`/task/${item.id}`)}
+                  activeOpacity={0.6}
+                >
+                  <Text style={styles.completedCheck}>✓</Text>
+                  <View style={styles.completedBody}>
+                    {item.category_name && (
+                      <Text style={styles.completedCat}>{item.category_name}</Text>
+                    )}
+                    <Text style={styles.completedTitle}>{item.title}</Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.undoBtn}
+                  onPress={() => handleUndo(item.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.undoBtnText}>Undo</Text>
+                </TouchableOpacity>
+              </View>
             ))}
           </View>
         )}
@@ -344,11 +358,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     marginHorizontal: 16, marginVertical: 3,
     backgroundColor: '#fff', borderRadius: 10,
+    overflow: 'hidden', opacity: 0.55,
+  },
+  completedMain: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 14, paddingVertical: 10,
-    opacity: 0.45,
   },
   completedCheck: { fontSize: 14, color: COLORS.success, fontWeight: '700', marginRight: 10 },
   completedBody: { flex: 1 },
   completedCat: { fontSize: 10, fontWeight: '700', color: COLORS.subtext, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 1 },
   completedTitle: { fontSize: 15, color: COLORS.text, fontWeight: '500', textDecorationLine: 'line-through' },
+  undoBtn: {
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderLeftWidth: 1, borderLeftColor: '#eee',
+  },
+  undoBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.subtext },
 });
