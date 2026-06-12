@@ -119,6 +119,8 @@ function initDbSync(db) {
     `ALTER TABLE tasks ADD COLUMN preferred_time TEXT`,
     // Habit window: which time-of-day window this habit belongs to
     `ALTER TABLE tasks ADD COLUMN habit_window TEXT`,
+    // Snooze until: hide follow-up tasks until this local date
+    `ALTER TABLE tasks ADD COLUMN snooze_until TEXT`,
   ];
   for (const sql of migrations) {
     try { db.execSync(sql); } catch (_) { /* column already exists */ }

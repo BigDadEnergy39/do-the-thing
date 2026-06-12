@@ -32,8 +32,8 @@ export function createTask(task) {
       anchor_date, anchor_year, anchor_label,
       goal_minutes, goal_reset,
       notification_config, auto_escalate_days, auto_hide_after_skips,
-      has_timer, duration_intent, preferred_time, habit_window
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      has_timer, duration_intent, preferred_time, habit_window, snooze_until
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       task.title,
       task.notes ?? null,
@@ -64,6 +64,7 @@ export function createTask(task) {
       task.duration_intent ?? null,
       task.preferred_time ?? null,
       task.habit_window ?? null,
+      task.snooze_until ?? null,
     ]
   );
   return result.lastInsertRowId;

@@ -184,12 +184,14 @@ export default function TodayScreen() {
                     key={item.id}
                     task={item}
                     onComplete={handleComplete}
+                    onFollowUp={handleFollowUp}
                     onPress={(t) => router.push(`/task/${t.id}`)}
                   />
                 : <TaskCard
                     key={item.id}
                     task={item}
                     onComplete={handleComplete}
+                    onFollowUp={handleFollowUp}
                     onPress={(t) => router.push(`/task/${t.id}`)}
                   />
             ))}
@@ -263,7 +265,7 @@ export default function TodayScreen() {
       />
 
       {/* Follow-up prompt */}
-      <Modal visible={!!followUpTask} transparent animationType="fade">
+      <Modal visible={!!followUpTask} transparent animationType="fade" onRequestClose={() => handleFollowUpChoice(0)}>
         <View style={styles.followUpOverlay}>
           <View style={styles.followUpSheet}>
             <Text style={styles.followUpTitle}>✓ Done!</Text>
