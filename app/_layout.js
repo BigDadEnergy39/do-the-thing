@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { TouchableOpacity, Text } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { initDb } from '../src/db/schema';
 import notifee, { EventType } from '@notifee/react-native';
 
@@ -95,7 +96,7 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <>
+    <SafeAreaProvider>
       <StatusBar style="dark" />
       <Stack
         screenOptions={{
@@ -120,6 +121,6 @@ export default function RootLayout() {
         <Stack.Screen name="all-tasks" options={{ title: 'All Tasks' }} />
       </Stack>
       <NotificationHandler />
-    </>
+    </SafeAreaProvider>
   );
 }

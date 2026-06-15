@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   RefreshControl, SectionList, Modal,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useDailyList } from '../src/hooks/useDailyList';
 import { TaskCard } from '../src/components/TaskCard';
@@ -16,6 +17,7 @@ import { createTask, toSqliteDatetime, undoCompletion } from '../src/db/tasks';
 
 export default function TodayScreen() {
   const router = useRouter();
+  const { bottom: bottomInset } = useSafeAreaInsets();
   const { mainItems, backlogItems, timedGoals, habits, completedToday, loading, refresh } = useDailyList();
   const [completedIds, setCompletedIds] = useState(new Set());
   const [backlogExpanded, setBacklogExpanded] = useState(false);
@@ -89,7 +91,7 @@ export default function TodayScreen() {
   return (
     <View style={styles.container}>
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + bottomInset }]}
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={COLORS.primary} />
         }
@@ -241,7 +243,7 @@ export default function TodayScreen() {
       </ScrollView>
 
       {/* FAB row: fast capture (left) + full add (right) */}
-      <View style={styles.fabRow}>
+      <View style={[styles.fabRow, { bottom: 28 + bottomInset }]}>
         <TouchableOpacity
           style={styles.fabSecondary}
           onPress={() => setFastCaptureVisible(true)}
@@ -319,7 +321,7 @@ const styles = StyleSheet.create({
   followUpSkipText: { fontSize: 14, color: COLORS.subtext },
 
   container: { flex: 1, backgroundColor: COLORS.background },
-  scrollContent: { paddingTop: 8, paddingBottom: 120 },
+  scrollContent: { paddingTop: 8 },
   header: { paddingHorizontal: 20, paddingBottom: 12 },
   dateText: { fontSize: 14, color: COLORS.subtext, marginBottom: 4 },
   coachNudge: { fontSize: 15, color: COLORS.text, fontWeight: '500', lineHeight: 22 },
@@ -338,7 +340,7 @@ const styles = StyleSheet.create({
   sectionCount: { fontSize: 12, color: COLORS.subtext, fontWeight: '600' },
   sectionChevron: { fontSize: 11, color: COLORS.subtext },
   fabRow: {
-    position: 'absolute', bottom: 28, right: 24,
+    position: 'absolute', right: 24,
     flexDirection: 'row', gap: 12, alignItems: 'center',
   },
   fab: {
