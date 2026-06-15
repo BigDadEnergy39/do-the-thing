@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  RefreshControl, SectionList, Modal,
+  RefreshControl, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -239,7 +239,6 @@ export default function TodayScreen() {
           </View>
         )}
 
-        <View style={{ height: 100 }} />
       </ScrollView>
 
       {/* FAB row: fast capture (left) + full add (right) */}

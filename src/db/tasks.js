@@ -83,7 +83,7 @@ export function updateTask(id, fields) {
     'auto_escalate_days','auto_hide_after_skips',
     'skip_count','last_skip_date','is_active',
     'has_timer','duration_intent','preferred_time','habit_window',
-    'anchor_nth_rule',
+    'anchor_nth_rule','snooze_until','task_type',
   ];
   const keys = Object.keys(fields).filter(k => allowed.includes(k));
   if (!keys.length) return;

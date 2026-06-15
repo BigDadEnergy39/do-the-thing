@@ -321,7 +321,7 @@ export default function AddTaskScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={80}
     >
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -752,17 +752,19 @@ export default function AddTaskScreen() {
       {/* Month picker modal */}
       <Modal visible={showMonthModal} transparent animationType="slide" onRequestClose={() => setShowMonthModal(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
+          <View style={[styles.modalSheet, { maxHeight: '80%' }]}>
             <Text style={styles.modalTitle}>Month</Text>
-            {MONTHS.map((m, i) => (
-              <TouchableOpacity
-                key={m}
-                style={[styles.modalOption, anchorNthRule.month === i + 1 && styles.modalOptionSelected]}
-                onPress={() => { setAnchorNthRule(r => ({ ...r, month: i + 1 })); setShowMonthModal(false); }}
-              >
-                <Text style={styles.modalOptTitle}>{m}</Text>
-              </TouchableOpacity>
-            ))}
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {MONTHS.map((m, i) => (
+                <TouchableOpacity
+                  key={m}
+                  style={[styles.modalOption, anchorNthRule.month === i + 1 && styles.modalOptionSelected]}
+                  onPress={() => { setAnchorNthRule(r => ({ ...r, month: i + 1 })); setShowMonthModal(false); }}
+                >
+                  <Text style={styles.modalOptTitle}>{m}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
             <TouchableOpacity style={styles.modalCancel} onPress={() => setShowMonthModal(false)}>
               <Text style={styles.modalCancelText}>Cancel</Text>
             </TouchableOpacity>
