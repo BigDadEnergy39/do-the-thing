@@ -22,6 +22,28 @@ const TASK_TYPES = [
 ];
 
 const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// Standard US holidays in calendar order — fixed dates use anchor_date (MM-DD),
+// floating holidays use anchor_nth_rule {n, weekday (0=Sun), month (1-indexed)}.
+const HOLIDAY_PRESETS = [
+  { label: "New Year's Day",    anchor_date: '01-01' },
+  { label: 'MLK Day',           anchor_nth_rule: { n: 3,  weekday: 1, month: 1  } },
+  { label: "Valentine's Day",   anchor_date: '02-14' },
+  { label: "Presidents' Day",   anchor_nth_rule: { n: 3,  weekday: 1, month: 2  } },
+  { label: "St. Patrick's Day", anchor_date: '03-17' },
+  { label: "Mother's Day",      anchor_nth_rule: { n: 2,  weekday: 0, month: 5  } },
+  { label: 'Memorial Day',      anchor_nth_rule: { n: -1, weekday: 1, month: 5  } },
+  { label: "Father's Day",      anchor_nth_rule: { n: 3,  weekday: 0, month: 6  } },
+  { label: 'Independence Day',  anchor_date: '07-04' },
+  { label: 'Labor Day',         anchor_nth_rule: { n: 1,  weekday: 1, month: 9  } },
+  { label: 'Columbus Day',      anchor_nth_rule: { n: 2,  weekday: 1, month: 10 } },
+  { label: 'Halloween',         anchor_date: '10-31' },
+  { label: 'Veterans Day',      anchor_date: '11-11' },
+  { label: 'Thanksgiving',      anchor_nth_rule: { n: 4,  weekday: 4, month: 11 } },
+  { label: 'Christmas',         anchor_date: '12-25' },
+  { label: "New Year's Eve",    anchor_date: '12-31' },
+];
 
 export default function AddTaskScreen() {
   const router = useRouter();
@@ -60,8 +82,12 @@ export default function AddTaskScreen() {
   const [durationIntent, setDurationIntent] = useState('');
   const [preferredTime, setPreferredTime] = useState(null);
   const [habitWindow, setHabitWindow] = useState('morning');
+  const [anchorMode, setAnchorMode] = useState('fixed'); // 'fixed' | 'nth_weekday'
+  const [anchorNthRule, setAnchorNthRule] = useState({ n: 2, weekday: 0, month: 5 });
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
+  const [showHolidayModal, setShowHolidayModal] = useState(false);
+  const [showMonthModal, setShowMonthModal] = useState(false);
 
   useEffect(() => {
     setCategories(getAllCategories());
@@ -86,6 +112,12 @@ export default function AddTaskScreen() {
       setRandPersistent(!!task.rand_persistent);
       setAnchorDate(task.anchor_date ?? '');
       setAnchorLabel(task.anchor_label ?? '');
+      if (task.anchor_nth_rule) {
+        setAnchorMode('nth_weekday');
+        try { setAnchorNthRule(JSON.parse(task.anchor_nth_rule)); } catch {}
+      } else {
+        setAnchorMode('fixed');
+      }
       // Populate anchorActions from the single task being edited
       if (task.task_type === 'date_anchor') {
         const { amount, unit } = daysToUnit(task.escalate_days_out ?? 42);
@@ -176,6 +208,18 @@ export default function AddTaskScreen() {
     setAnchorActions(prev => prev.map(a => a.id === id ? { ...a, [field]: value } : a));
   };
 
+  const applyHolidayPreset = (preset) => {
+    setAnchorLabel(preset.label);
+    if (preset.anchor_date) {
+      setAnchorMode('fixed');
+      setAnchorDate(preset.anchor_date);
+    } else {
+      setAnchorMode('nth_weekday');
+      setAnchorNthRule(preset.anchor_nth_rule);
+    }
+    setShowHolidayModal(false);
+  };
+
   const handleSave = () => {
     if (taskType !== 'date_anchor' && !title.trim()) { Alert.alert('Missing Title', 'Please enter a task title.'); return; }
 
@@ -225,11 +269,20 @@ export default function AddTaskScreen() {
     };
 
     if (taskType === 'date_anchor') {
-      if (!anchorDate) { Alert.alert('Missing Date', 'Please enter the event date (MM-DD).'); return; }
+      if (anchorMode === 'fixed' && !anchorDate) {
+        Alert.alert('Missing Date', 'Please pick an annual date.'); return;
+      }
+      if (anchorMode === 'nth_weekday' && !anchorNthRule.month) {
+        Alert.alert('Incomplete', 'Please select a month for the date rule.'); return;
+      }
       const validActions = anchorActions.filter(a => a.description.trim());
       if (!validActions.length) { Alert.alert('Missing Action', 'Add at least one action for this date.'); return; }
+
+      const anchorDateVal  = anchorMode === 'fixed'       ? anchorDate                       : null;
+      const anchorNthVal   = anchorMode === 'nth_weekday' ? JSON.stringify(anchorNthRule)     : null;
+      const anchorLabelVal = anchorLabel || (anchorMode === 'fixed' ? anchorDate : 'Event');
+
       if (isEditing) {
-        // Update the existing task using the first (only) action
         const action = validActions[0];
         updateTask(Number(editId), {
           ...taskData,
@@ -237,12 +290,12 @@ export default function AddTaskScreen() {
           task_type: 'date_anchor',
           base_priority: action.priority,
           priority_ceiling: action.priority,
-          anchor_date: anchorDate,
-          anchor_label: anchorLabel || anchorDate,
+          anchor_date: anchorDateVal,
+          anchor_nth_rule: anchorNthVal,
+          anchor_label: anchorLabelVal,
           escalate_days_out: leadToDays(action.leadAmount, action.leadUnit),
         });
       } else {
-        // Create one task per action item
         for (const action of validActions) {
           createTask({
             ...taskData,
@@ -250,8 +303,9 @@ export default function AddTaskScreen() {
             task_type: 'date_anchor',
             base_priority: action.priority,
             priority_ceiling: action.priority,
-            anchor_date: anchorDate,
-            anchor_label: anchorLabel || anchorDate,
+            anchor_date: anchorDateVal,
+            anchor_nth_rule: anchorNthVal,
+            anchor_label: anchorLabelVal,
             escalate_days_out: leadToDays(action.leadAmount, action.leadUnit),
           });
         }
@@ -439,15 +493,81 @@ export default function AddTaskScreen() {
       {/* ── Date Anchor ── */}
       {taskType === 'date_anchor' && (
         <>
-          <DatePickerField
-            label="Annual Date"
-            value={monthDayToDate(anchorDate)}
-            onChange={d => setAnchorDate(dateToMonthDay(d))}
-            placeholder="Pick a date (year ignored)"
-            monthDayOnly
-          />
+          {/* Holiday preset picker */}
+          <Text style={styles.label}>Holiday Preset</Text>
+          <TouchableOpacity style={styles.pickerBtn} onPress={() => setShowHolidayModal(true)}>
+            <Text style={[styles.pickerBtnTitle, !anchorLabel && { color: '#aaa' }]}>
+              {anchorLabel || 'Choose a holiday…'}
+            </Text>
+            <Text style={styles.chevron}>›</Text>
+          </TouchableOpacity>
+          <Text style={styles.sublabel}>Or set a custom date below.</Text>
+
+          {/* Date type toggle */}
+          <Text style={styles.label}>Date Type</Text>
+          <View style={styles.segmentRow}>
+            {[
+              { key: 'fixed',       label: 'Fixed (MM/DD)'  },
+              { key: 'nth_weekday', label: 'Nth Weekday' },
+            ].map(opt => (
+              <TouchableOpacity
+                key={opt.key}
+                style={[styles.segBtn, anchorMode === opt.key && styles.segBtnActive]}
+                onPress={() => setAnchorMode(opt.key)}
+              >
+                <Text style={[styles.segText, anchorMode === opt.key && styles.segTextActive]}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {anchorMode === 'fixed' ? (
+            <DatePickerField
+              label="Annual Date"
+              value={monthDayToDate(anchorDate)}
+              onChange={d => setAnchorDate(dateToMonthDay(d))}
+              placeholder="Pick a date (year ignored)"
+              monthDayOnly
+            />
+          ) : (
+            <>
+              <Text style={styles.label}>Ordinal</Text>
+              <View style={styles.segmentRow}>
+                {[{label:'1st',n:1},{label:'2nd',n:2},{label:'3rd',n:3},{label:'4th',n:4},{label:'Last',n:-1}].map(opt => (
+                  <TouchableOpacity
+                    key={opt.n}
+                    style={[styles.segBtn, anchorNthRule.n === opt.n && styles.segBtnActive]}
+                    onPress={() => setAnchorNthRule(r => ({ ...r, n: opt.n }))}
+                  >
+                    <Text style={[styles.segText, anchorNthRule.n === opt.n && styles.segTextActive]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.label}>Day of Week</Text>
+              <View style={styles.dowRow}>
+                {DOW_LABELS.map((d, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={[styles.dowBtn, anchorNthRule.weekday === i && styles.dowBtnActive]}
+                    onPress={() => setAnchorNthRule(r => ({ ...r, weekday: i }))}
+                  >
+                    <Text style={[styles.dowText, anchorNthRule.weekday === i && styles.dowTextActive]}>{d}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.label}>Month</Text>
+              <TouchableOpacity style={styles.pickerBtn} onPress={() => setShowMonthModal(true)}>
+                <Text style={styles.pickerBtnTitle}>{MONTHS[(anchorNthRule.month ?? 1) - 1]}</Text>
+                <Text style={styles.chevron}>›</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
           <Text style={styles.label}>Event Label</Text>
-          <TextInput style={styles.input} value={anchorLabel} onChangeText={setAnchorLabel} placeholder="Jim's Birthday" placeholderTextColor="#aaa" />
+          <TextInput style={styles.input} value={anchorLabel} onChangeText={setAnchorLabel} placeholder="e.g. Mother's Day, Jim's Birthday" placeholderTextColor="#aaa" />
 
           <Text style={styles.label}>Actions</Text>
           <Text style={styles.sublabel}>Add one action per thing you need to do for this event.</Text>
@@ -594,6 +714,56 @@ export default function AddTaskScreen() {
               </TouchableOpacity>
             ))}
             <TouchableOpacity style={styles.modalCancel} onPress={() => setShowTypeModal(false)}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Holiday preset modal */}
+      <Modal visible={showHolidayModal} transparent animationType="slide" onRequestClose={() => setShowHolidayModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { maxHeight: '80%' }]}>
+            <Text style={styles.modalTitle}>Holiday Presets</Text>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {HOLIDAY_PRESETS.map(preset => (
+                <TouchableOpacity
+                  key={preset.label}
+                  style={[styles.modalOption, anchorLabel === preset.label && styles.modalOptionSelected]}
+                  onPress={() => applyHolidayPreset(preset)}
+                >
+                  <Text style={styles.modalOptTitle}>{preset.label}</Text>
+                  <Text style={styles.modalOptDesc}>
+                    {preset.anchor_date
+                      ? MONTHS[Number(preset.anchor_date.split('-')[0]) - 1] + ' ' + Number(preset.anchor_date.split('-')[1])
+                      : (() => { const r = preset.anchor_nth_rule; return `${['Last','1st','2nd','3rd','4th'][r.n === -1 ? 0 : r.n]} ${DOW_LABELS[r.weekday]} of ${MONTHS[r.month - 1]}`; })()
+                    }
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.modalCancel} onPress={() => setShowHolidayModal(false)}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Month picker modal */}
+      <Modal visible={showMonthModal} transparent animationType="slide" onRequestClose={() => setShowMonthModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Month</Text>
+            {MONTHS.map((m, i) => (
+              <TouchableOpacity
+                key={m}
+                style={[styles.modalOption, anchorNthRule.month === i + 1 && styles.modalOptionSelected]}
+                onPress={() => { setAnchorNthRule(r => ({ ...r, month: i + 1 })); setShowMonthModal(false); }}
+              >
+                <Text style={styles.modalOptTitle}>{m}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.modalCancel} onPress={() => setShowMonthModal(false)}>
               <Text style={styles.modalCancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>

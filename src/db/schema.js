@@ -121,6 +121,8 @@ function initDbSync(db) {
     `ALTER TABLE tasks ADD COLUMN habit_window TEXT`,
     // Snooze until: hide follow-up tasks until this local date
     `ALTER TABLE tasks ADD COLUMN snooze_until TEXT`,
+    // Nth-weekday rule for floating holidays (e.g. Mother's Day, Thanksgiving)
+    `ALTER TABLE tasks ADD COLUMN anchor_nth_rule TEXT`,
   ];
   for (const sql of migrations) {
     try { db.execSync(sql); } catch (_) { /* column already exists */ }

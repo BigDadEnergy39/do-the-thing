@@ -32,8 +32,8 @@ export function createTask(task) {
       anchor_date, anchor_year, anchor_label,
       goal_minutes, goal_reset,
       notification_config, auto_escalate_days, auto_hide_after_skips,
-      has_timer, duration_intent, preferred_time, habit_window, snooze_until
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      has_timer, duration_intent, preferred_time, habit_window, snooze_until, anchor_nth_rule
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       task.title,
       task.notes ?? null,
@@ -65,6 +65,7 @@ export function createTask(task) {
       task.preferred_time ?? null,
       task.habit_window ?? null,
       task.snooze_until ?? null,
+      task.anchor_nth_rule ?? null,
     ]
   );
   return result.lastInsertRowId;
@@ -82,6 +83,7 @@ export function updateTask(id, fields) {
     'auto_escalate_days','auto_hide_after_skips',
     'skip_count','last_skip_date','is_active',
     'has_timer','duration_intent','preferred_time','habit_window',
+    'anchor_nth_rule',
   ];
   const keys = Object.keys(fields).filter(k => allowed.includes(k));
   if (!keys.length) return;

@@ -144,7 +144,31 @@ function wasCompletedToday(lastCompletion, today) {
   return completedAt >= today && completedAt < startOfTomorrow;
 }
 
+function nthWeekdayOfMonth(year, month, weekday, n) {
+  if (n === -1) {
+    // Last occurrence: work backward from last day of month
+    const last = new Date(year, month, 0);
+    last.setHours(0, 0, 0, 0);
+    last.setDate(last.getDate() - (last.getDay() - weekday + 7) % 7);
+    return last;
+  }
+  const first = new Date(year, month - 1, 1);
+  const d = new Date(year, month - 1, 1 + (weekday - first.getDay() + 7) % 7 + (n - 1) * 7);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 function computeAnchorNextDate(task, today) {
+  // Floating holiday: nth weekday of a given month
+  if (task.anchor_nth_rule) {
+    let rule;
+    try { rule = typeof task.anchor_nth_rule === 'string' ? JSON.parse(task.anchor_nth_rule) : task.anchor_nth_rule; } catch { return null; }
+    const year = today.getFullYear();
+    let candidate = nthWeekdayOfMonth(year, rule.month, rule.weekday, rule.n);
+    if (candidate < today) candidate = nthWeekdayOfMonth(year + 1, rule.month, rule.weekday, rule.n);
+    return candidate;
+  }
+  // Fixed MM-DD anchor
   if (!task.anchor_date) return null;
   const [month, day] = task.anchor_date.split('-').map(Number);
   const year = today.getFullYear();
