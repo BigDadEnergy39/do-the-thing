@@ -259,6 +259,7 @@ export function buildDailyList() {
 
     // ── Deadline ──────────────────────────────────────────────────────────
     else if (task.task_type === 'deadline') {
+      if (last) continue;
       const due = toDate(task.due_date);
       if (!due) continue;
       daysUntilDue = daysBetween(today, due);
