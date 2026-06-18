@@ -255,16 +255,16 @@ export default function AddTaskScreen() {
       notes: notes.trim() || null,
       category_id: categoryId,
       task_type: taskType,
-      base_priority: priority,
-      priority_ceiling: priorityCeiling,
-      auto_escalate_days: Number(autoEscalateDays) || 14,
+      base_priority: taskType === 'habit' ? 2 : priority,
+      priority_ceiling: (taskType === 'unscheduled' || taskType === 'timed_goal') && Number(autoEscalateDays) > 0 ? priorityCeiling : 4,
+      auto_escalate_days: (taskType === 'unscheduled' || taskType === 'timed_goal') ? (Number(autoEscalateDays) || 0) : 0,
       due_date: taskType === 'deadline' ? dueDate || null : null,
       due_time: taskType === 'deadline' ? dueTime || null : null,
       due_reminders: taskType === 'deadline' && dueReminders.length
         ? dueReminders.map(({ amount, unit }) => ({ amount: Number(amount), unit }))
         : null,
-      escalate_days_out: Number(escalateDays),
-      escalate_to_priority: escalatePriority,
+      escalate_days_out: taskType === 'deadline' ? Number(escalateDays) : 0,
+      escalate_to_priority: taskType === 'deadline' && Number(escalateDays) > 0 ? escalatePriority : null,
       recur_rule: recurRule,
       recur_persistent: recurPersistent,
       rand_min_days: Number(randMin),
@@ -371,23 +371,26 @@ export default function AddTaskScreen() {
         <Text style={styles.chevron}>›</Text>
       </TouchableOpacity>
 
-      {taskType !== 'date_anchor' && (
+      {taskType !== 'date_anchor' && taskType !== 'habit' && (
         <>
           <Text style={styles.label}>Base Priority</Text>
           <PriorityRow value={priority} onChange={setPriority} options={[1,2,3,4]} />
-
-          <Text style={styles.label}>Priority Ceiling</Text>
-          <Text style={styles.sublabel}>Auto-escalation will never exceed this level.</Text>
-          <PriorityRow value={priorityCeiling} onChange={setPriorityCeiling} options={[1,2,3,4]} />
         </>
       )}
 
-      {/* Unscheduled / Timed Goal: auto-escalation */}
+      {/* Unscheduled / Timed Goal: auto-escalation + ceiling */}
       {(taskType === 'unscheduled' || taskType === 'timed_goal') && (
         <>
           <Text style={styles.label}>Auto-escalate every N days</Text>
           <Text style={styles.sublabel}>Priority climbs by 1 step every N days if untouched. 0 = off.</Text>
           <TextInput style={styles.input} value={autoEscalateDays} onChangeText={setAutoEscalateDays} keyboardType="numeric" placeholder="14" placeholderTextColor="#aaa" />
+          {Number(autoEscalateDays) > 0 && (
+            <>
+              <Text style={styles.label}>Priority Ceiling</Text>
+              <Text style={styles.sublabel}>Auto-escalation will never exceed this level.</Text>
+              <PriorityRow value={priorityCeiling} onChange={setPriorityCeiling} options={[1,2,3,4]} />
+            </>
+          )}
         </>
       )}
 
@@ -445,9 +448,14 @@ export default function AddTaskScreen() {
           )}
 
           <Text style={styles.label}>Escalate priority when within N days</Text>
-          <TextInput style={styles.input} value={escalateDays} onChangeText={setEscalateDays} keyboardType="numeric" placeholder="14" placeholderTextColor="#aaa" />
-          <Text style={styles.label}>Escalate to priority</Text>
-          <PriorityRow value={escalatePriority} onChange={setEscalatePriority} options={[2,3,4]} />
+          <Text style={styles.sublabel}>Priority bumps up automatically as the deadline approaches. 0 = off.</Text>
+          <TextInput style={styles.input} value={escalateDays} onChangeText={setEscalateDays} keyboardType="numeric" placeholder="0" placeholderTextColor="#aaa" />
+          {Number(escalateDays) > 0 && (
+            <>
+              <Text style={styles.label}>Escalate to priority</Text>
+              <PriorityRow value={escalatePriority} onChange={setEscalatePriority} options={[2,3,4]} />
+            </>
+          )}
         </>
       )}
 
@@ -831,6 +839,10 @@ export default function AddTaskScreen() {
 
       {/* Add Reminder modal */}
       <Modal visible={showAddReminderModal} transparent animationType="slide" onRequestClose={() => setShowAddReminderModal(false)}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>Add Reminder</Text>
@@ -875,6 +887,7 @@ export default function AddTaskScreen() {
             </TouchableOpacity>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Category modal */}
