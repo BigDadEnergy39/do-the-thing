@@ -13,7 +13,7 @@ import notifee, {
   AuthorizationStatus,
 } from '@notifee/react-native';
 import { getSetting } from '../db/settings';
-import { getCoachText } from '../components/CoachText';
+import { getCoachText, PERSONA_NUDGE_LEVEL, COMPLETION_ACK_THRESHOLD, HABIT_NUDGE_THRESHOLD } from '../components/CoachText';
 
 const BACKGROUND_TASK = 'DTT_NOTIFICATION_CHECK';
 
@@ -88,6 +88,16 @@ export async function createNotificationChannels() {
       id: 'review',
       name: 'Weekly Review',
       importance: AndroidImportance.HIGH,
+    });
+    await notifee.createChannel({
+      id: 'completion_ack',
+      name: 'Completion Acknowledgments',
+      importance: AndroidImportance.DEFAULT,
+    });
+    await notifee.createChannel({
+      id: 'habit_nudge',
+      name: 'Habit Nudges',
+      importance: AndroidImportance.DEFAULT,
     });
     await notifee.createChannel({
       id: 'deadline_reminder',
@@ -192,10 +202,11 @@ export async function scheduleCoachingNotifications() {
       notifee.cancelTriggerNotification(id).catch(() => {})
     ));
 
-    const intensity = parseInt(getSetting('notification_intensity') ?? '3', 10);
-    const persona   = getSetting('coach_persona') ?? 'coach';
-    const coach     = getCoachText(persona);
-    const config    = INTENSITY_CONFIG[intensity] ?? INTENSITY_CONFIG[3];
+    const intensity   = parseInt(getSetting('notification_intensity') ?? '3', 10);
+    const persona     = getSetting('coach_persona') ?? 'coach';
+    const coach       = getCoachText(persona);
+    const config      = INTENSITY_CONFIG[intensity] ?? INTENSITY_CONFIG[3];
+    const nudgeLevel  = PERSONA_NUDGE_LEVEL[persona] ?? 0;
 
     // ── Morning briefing ──────────────────────────────────────────────────────
     const morningTime = getSetting('morning_briefing_time') ?? '07:00';
@@ -219,35 +230,37 @@ export async function scheduleCoachingNotifications() {
       }
     );
 
-    // ── Mid-day check-ins ─────────────────────────────────────────────────────
-    const summaryTime1 = getSetting('summary_time_1') ?? '12:00';
-    const summaryTime2 = getSetting('summary_time_2') ?? '17:00';
-    const summarySlots = [
-      { id: IDS.MIDDAY_1, time: summaryTime1 },
-      { id: IDS.MIDDAY_2, time: summaryTime2 },
-    ].slice(0, config.summaryCount);
+    // ── Mid-day check-ins (coach / hype only) ────────────────────────────────
+    if (nudgeLevel >= 2) {
+      const summaryTime1 = getSetting('summary_time_1') ?? '12:00';
+      const summaryTime2 = getSetting('summary_time_2') ?? '17:00';
+      const summarySlots = [
+        { id: IDS.MIDDAY_1, time: summaryTime1 },
+        { id: IDS.MIDDAY_2, time: summaryTime2 },
+      ].slice(0, nudgeLevel >= 3 ? config.summaryCount : 1);
 
-    for (const { id, time } of summarySlots) {
-      const [h, m] = time.split(':').map(Number);
-      await notifee.createTriggerNotification(
-        {
-          id,
-          title: 'Do The Thing',
-          body: coach.nudge(0),
-          data: { coaching: 'midday' },
-          android: {
-            channelId: 'nudge',
-            actions: TASK_ACTIONS,
-            pressAction: { id: 'default' },
+      for (const { id, time } of summarySlots) {
+        const [h, m] = time.split(':').map(Number);
+        await notifee.createTriggerNotification(
+          {
+            id,
+            title: 'Do The Thing',
+            body: coach.nudge(0),
+            data: { coaching: 'midday' },
+            android: {
+              channelId: 'nudge',
+              actions: TASK_ACTIONS,
+              pressAction: { id: 'default' },
+            },
           },
-        },
-        {
-          type: TriggerType.TIMESTAMP,
-          timestamp: nextDailyTimestamp(h, m),
-          repeatFrequency: RepeatFrequency.DAILY,
-          alarmManager: { allowWhileIdle: true },
-        }
-      );
+          {
+            type: TriggerType.TIMESTAMP,
+            timestamp: nextDailyTimestamp(h, m),
+            repeatFrequency: RepeatFrequency.DAILY,
+            alarmManager: { allowWhileIdle: true },
+          }
+        );
+      }
     }
 
     // ── Evening wrap-up ───────────────────────────────────────────────────────
@@ -345,6 +358,44 @@ export async function snoozeNotification(taskId, title, snoozeMinutes = 15) {
     body: coach.taskDueReminder(cleanTitle, snoozeMinutes),
     triggerTimestamp: Date.now() + snoozeMinutes * 60 * 1000,
   });
+}
+
+// Fire an immediate in-app acknowledgment when a task is completed.
+// Only fires for coach/hype personas, gated by task priority threshold.
+export async function fireCompletionAck(task) {
+  try {
+    const persona = getSetting('coach_persona') ?? 'coach';
+    const threshold = COMPLETION_ACK_THRESHOLD[persona] ?? Infinity;
+    if ((task.base_priority ?? task.effectivePriority ?? 2) < threshold) return;
+    const coach = getCoachText(persona);
+    const body = coach.completionAck(task.title, task.base_priority ?? task.effectivePriority ?? 2);
+    if (!body) return;
+    await notifee.displayNotification({
+      title: 'Do The Thing',
+      body,
+      android: { channelId: 'completion_ack', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
+    });
+  } catch { /* unavailable */ }
+}
+
+// Check for habits not completed today and fire nudges for coach/hype personas.
+// daysMissedMap: { [taskId]: daysMissed } — computed by caller from DB.
+export async function fireHabitNudges(missedHabits) {
+  try {
+    const persona = getSetting('coach_persona') ?? 'coach';
+    const threshold = HABIT_NUDGE_THRESHOLD[persona] ?? Infinity;
+    const coach = getCoachText(persona);
+    for (const { title, daysMissed } of missedHabits) {
+      if (daysMissed < threshold) continue;
+      const body = coach.habitNudge(title, daysMissed);
+      if (!body) continue;
+      await notifee.displayNotification({
+        title: 'Do The Thing',
+        body,
+        android: { channelId: 'habit_nudge', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
+      });
+    }
+  } catch { /* unavailable */ }
 }
 
 // Refreshes mid-day nudge text to reflect current task count + critical items

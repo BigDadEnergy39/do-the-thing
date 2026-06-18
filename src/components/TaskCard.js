@@ -6,7 +6,7 @@ import {
   recordCompletion, startTimedSession, endTimedSession,
   getActiveTimedSession, getTodayTimedSeconds,
 } from '../db/tasks';
-import { cancelAllForTask } from '../notifications/notificationService';
+import { cancelAllForTask, fireCompletionAck } from '../notifications/notificationService';
 import { COLORS, PRIORITY_COLORS } from './theme';
 
 const PRIORITY_LABELS = { 1: 'Low', 2: 'Normal', 3: 'High', 4: 'Critical' };
@@ -79,6 +79,7 @@ export function TaskCard({ task, onComplete, onFollowUp, onPress }) {
         }).start(() => {
           recordCompletion(task.id, task.due_date ?? null, secondsToday);
           cancelAllForTask(task.id).catch(() => {});
+          fireCompletionAck(task).catch(() => {});
           onComplete?.(task.id);
         });
       });
@@ -91,6 +92,7 @@ export function TaskCard({ task, onComplete, onFollowUp, onPress }) {
     }).start(() => {
       recordCompletion(task.id, task.due_date ?? null, secondsToday);
       cancelAllForTask(task.id).catch(() => {});
+      fireCompletionAck(task).catch(() => {});
       onComplete?.(task.id);
     });
   };
