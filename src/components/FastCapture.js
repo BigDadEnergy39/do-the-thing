@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, StyleSheet,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { createTask } from '../db/tasks';
 import { COLORS } from './theme';
@@ -30,6 +31,10 @@ export function FastCapture({ visible, onClose, onSaved }) {
       animationType="slide"
       onShow={() => setTimeout(() => inputRef.current?.focus(), 50)}
     >
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
       <View style={styles.overlay}>
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleClose} />
         <View style={styles.sheet}>
@@ -59,6 +64,7 @@ export function FastCapture({ visible, onClose, onSaved }) {
           </View>
         </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

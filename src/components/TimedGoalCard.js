@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Animated,
-  Modal, TextInput,
+  Modal, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import {
   startTimedSession, endTimedSession,
@@ -208,6 +208,7 @@ export function TimedGoalCard({ task, onComplete, onPress }) {
 
       {/* Manual minutes modal */}
       <Modal visible={manualModalVisible} transparent animationType="fade">
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>Add Time Manually</Text>
@@ -255,6 +256,7 @@ export function TimedGoalCard({ task, onComplete, onPress }) {
             </View>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </Animated.View>
   );

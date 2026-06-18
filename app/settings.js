@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, Modal, Switch,
+  TextInput, Alert, Modal, Switch, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { getAllCategories, createCategory, updateCategory, deleteCategory } from '../src/db/categories';
@@ -299,6 +299,7 @@ export default function SettingsScreen() {
 
       {/* Category modal */}
       <Modal visible={catModalVisible} transparent animationType="slide">
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>{editingCat ? 'Edit Category' : 'New Category'}</Text>
@@ -329,6 +330,7 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
