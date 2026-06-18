@@ -12,7 +12,7 @@ import notifee, {
   RepeatFrequency,
   AuthorizationStatus,
 } from '@notifee/react-native';
-import { getSetting } from '../db/settings';
+import { getSetting, setSetting } from '../db/settings';
 import { getCoachText, PERSONA_NUDGE_LEVEL, COMPLETION_ACK_THRESHOLD, HABIT_NUDGE_THRESHOLD } from '../components/CoachText';
 
 const BACKGROUND_TASK = 'DTT_NOTIFICATION_CHECK';
@@ -208,19 +208,19 @@ export async function scheduleCoachingNotifications() {
     const config      = INTENSITY_CONFIG[intensity] ?? INTENSITY_CONFIG[3];
     const nudgeLevel  = PERSONA_NUDGE_LEVEL[persona] ?? 0;
 
-    // ── Morning briefing ──────────────────────────────────────────────────────
+    // ── Morning briefing ─────────────────────────────────────────────────────
+    // The background task fires the real content-rich version near this time.
+    // This scheduled alarm is a fallback tap-trigger in case the background task
+    // doesn't run (e.g. first boot before WorkManager is registered).
     const morningTime = getSetting('morning_briefing_time') ?? '07:00';
     const [mh, mm] = morningTime.split(':').map(Number);
     await notifee.createTriggerNotification(
       {
         id: IDS.MORNING,
         title: 'Do The Thing',
-        body: "Here's your day — tap to see your list.",
+        body: coach.morningBriefing(0),
         data: { coaching: 'morning' },
-        android: {
-          channelId: 'briefing',
-          pressAction: { id: 'default' },
-        },
+        android: { channelId: 'briefing', pressAction: { id: 'default' } },
       },
       {
         type: TriggerType.TIMESTAMP,
@@ -264,7 +264,8 @@ export async function scheduleCoachingNotifications() {
     }
 
     // ── Evening wrap-up ───────────────────────────────────────────────────────
-    const bedtime = getSetting('bedtime') ?? '22:00';
+    // Background task fires the real content-rich version. This is the fallback.
+    const bedtime  = getSetting('bedtime') ?? '22:00';
     const [bh, bm] = bedtime.split(':').map(Number);
     const wrapHour = bm >= 15 ? bh : bh - 1;
     const wrapMin  = bm >= 15 ? bm - 15 : bm + 45;
@@ -272,12 +273,9 @@ export async function scheduleCoachingNotifications() {
       {
         id: IDS.EVENING,
         title: 'Day Wrap-Up',
-        body: "Here's how today went — tap to review.",
+        body: coach.eveningWrapup(0, 0),
         data: { coaching: 'evening' },
-        android: {
-          channelId: 'summary',
-          pressAction: { id: 'default' },
-        },
+        android: { channelId: 'summary', pressAction: { id: 'default' } },
       },
       {
         type: TriggerType.TIMESTAMP,
@@ -464,19 +462,112 @@ export async function refreshMidayNudges() {
   }
 }
 
+// Fire morning briefing with live task data. Deduped — only fires once per calendar day.
+async function fireMorningBriefing() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    if (getSetting('last_morning_briefing_date') === today) return;
+
+    const persona    = getSetting('coach_persona') ?? 'coach';
+    const nudgeLevel = PERSONA_NUDGE_LEVEL[persona] ?? 0;
+    if (nudgeLevel === 0) return;
+
+    const { buildDailyList } = require('../engine/scheduler');
+    const { mainItems, backlogItems } = buildDailyList();
+    const allItems      = [...mainItems, ...backlogItems];
+    const criticalTitles = allItems
+      .filter(t => t.effectivePriority >= 4)
+      .map(t => t.title);
+    const coach = getCoachText(persona);
+    const body  = coach.morningBody
+      ? coach.morningBody(allItems.length, criticalTitles)
+      : coach.morningBriefing(allItems.length);
+
+    await notifee.displayNotification({
+      id: IDS.MORNING,
+      title: 'Do The Thing',
+      body,
+      data: { coaching: 'morning' },
+      android: { channelId: 'briefing', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
+    });
+    setSetting('last_morning_briefing_date', today);
+  } catch (e) {
+    console.log('fireMorningBriefing error:', e.message);
+  }
+}
+
+// Fire evening wrap-up with live task + habit data. Deduped — only fires once per calendar day.
+async function fireEveningWrapup() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    if (getSetting('last_evening_wrapup_date') === today) return;
+
+    const persona    = getSetting('coach_persona') ?? 'coach';
+    const nudgeLevel = PERSONA_NUDGE_LEVEL[persona] ?? 0;
+    if (nudgeLevel === 0) return;
+
+    const { buildDailyList }      = require('../engine/scheduler');
+    const { getTodayCompletedTasks } = require('../db/tasks');
+    const { mainItems, backlogItems, habits } = buildDailyList();
+    const remaining     = mainItems.length + backlogItems.length;
+    const completedToday = getTodayCompletedTasks();
+    const missedHabits  = habits
+      .filter(h => !h.checkinResponse)
+      .map(h => h.title);
+
+    const coach = getCoachText(persona);
+    const body  = coach.eveningBody
+      ? coach.eveningBody(completedToday.length, remaining, missedHabits)
+      : coach.eveningWrapup(completedToday.length, remaining);
+
+    await notifee.displayNotification({
+      id: IDS.EVENING,
+      title: 'Do The Thing',
+      body,
+      data: { coaching: 'evening' },
+      android: { channelId: 'summary', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
+    });
+    setSetting('last_evening_wrapup_date', today);
+
+    // Fire habit nudges alongside the evening wrap-up for coach/hype
+    if (missedHabits.length > 0) {
+      const missedWithDays = habits
+        .filter(h => !h.checkinResponse)
+        .map(h => ({ title: h.title, daysMissed: 1 }));
+      await fireHabitNudges(missedWithDays);
+    }
+  } catch (e) {
+    console.log('fireEveningWrapup error:', e.message);
+  }
+}
+
+// Returns true if current time is within `windowMinutes` of the target HH:MM string
+function isNearTime(timeStr, windowMinutes = 20) {
+  const [th, tm] = timeStr.split(':').map(Number);
+  const now     = new Date();
+  const targetMs = new Date(now).setHours(th, tm, 0, 0);
+  return Math.abs(now.getTime() - targetMs) <= windowMinutes * 60 * 1000;
+}
+
 // Background task uses expo-task-manager + expo-background-fetch
 // Both rely on Android WorkManager — no Google Play Services required
 export async function registerBackgroundTask() {
-  const TaskManager   = (() => { try { return require('expo-task-manager');    } catch { return null; } })();
+  const TaskManager     = (() => { try { return require('expo-task-manager');    } catch { return null; } })();
   const BackgroundFetch = (() => { try { return require('expo-background-fetch'); } catch { return null; } })();
   if (!TaskManager || !BackgroundFetch) return;
   try {
     TaskManager.defineTask(BACKGROUND_TASK, async () => {
       try {
-        const hour = new Date().getHours();
-        if (hour >= 6 && hour < 9) {
-          await refreshMidayNudges();
-        }
+        const morningTime = getSetting('morning_briefing_time') ?? '07:00';
+        const bedtime     = getSetting('bedtime') ?? '22:00';
+        const [bh, bm]    = bedtime.split(':').map(Number);
+        const wrapMin     = bm >= 15 ? bm - 15 : bm + 45;
+        const wrapHour    = bm >= 15 ? bh : bh - 1;
+        const eveningTime = `${String(wrapHour).padStart(2, '0')}:${String(wrapMin).padStart(2, '0')}`;
+
+        if (isNearTime(morningTime)) await fireMorningBriefing();
+        if (isNearTime(eveningTime)) await fireEveningWrapup();
+
         // Daily auto-backup (runs whenever background task fires, deduped by date)
         const { saveAutoBackup } = require('../db/backup');
         await saveAutoBackup().catch(() => {});
@@ -486,7 +577,7 @@ export async function registerBackgroundTask() {
       return BackgroundFetch.BackgroundFetchResult.NewData;
     });
     await BackgroundFetch.registerTaskAsync(BACKGROUND_TASK, {
-      minimumInterval: 60 * 60,
+      minimumInterval: 15 * 60, // 15 min — keeps us within one window of target times
       stopOnTerminate: false,
       startOnBoot: true,
     });
