@@ -123,6 +123,8 @@ function initDbSync(db) {
     `ALTER TABLE tasks ADD COLUMN snooze_until TEXT`,
     // Nth-weekday rule for floating holidays (e.g. Mother's Day, Thanksgiving)
     `ALTER TABLE tasks ADD COLUMN anchor_nth_rule TEXT`,
+    // Due reminders: JSON array of {amount, unit} advance notification configs
+    `ALTER TABLE tasks ADD COLUMN due_reminders TEXT`,
   ];
   for (const sql of migrations) {
     try { db.execSync(sql); } catch (_) { /* column already exists */ }

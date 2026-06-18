@@ -7,6 +7,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { DatePickerField } from '../src/components/DatePickerField';
 import { TimePickerField } from '../src/components/TimePickerField';
 import { createTask, updateTask, getTaskById } from '../src/db/tasks';
+import { scheduleDeadlineReminders } from '../src/notifications/notificationService';
 import { advanceRandomizedTask } from '../src/engine/scheduler';
 import { getAllCategories } from '../src/db/categories';
 import { COLORS, PRIORITY_COLORS, PRIORITY_LABELS } from '../src/components/theme';
@@ -84,6 +85,10 @@ export default function AddTaskScreen() {
   const [habitWindow, setHabitWindow] = useState('morning');
   const [anchorMode, setAnchorMode] = useState('fixed'); // 'fixed' | 'nth_weekday'
   const [anchorNthRule, setAnchorNthRule] = useState({ n: 2, weekday: 0, month: 5 });
+  const [dueReminders, setDueReminders] = useState([]); // [{id, amount, unit}]
+  const [showAddReminderModal, setShowAddReminderModal] = useState(false);
+  const [newReminderAmount, setNewReminderAmount] = useState('1');
+  const [newReminderUnit, setNewReminderUnit] = useState('hours');
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
   const [showHolidayModal, setShowHolidayModal] = useState(false);
@@ -135,6 +140,12 @@ export default function AddTaskScreen() {
       setDurationIntent(task.duration_intent ? String(task.duration_intent) : '');
       setPreferredTime(task.preferred_time ?? null);
       setHabitWindow(task.habit_window ?? 'morning');
+      if (task.due_reminders) {
+        try {
+          const loaded = typeof task.due_reminders === 'string' ? JSON.parse(task.due_reminders) : task.due_reminders;
+          setDueReminders(loaded.map((r, i) => ({ ...r, id: i + 1 })));
+        } catch {}
+      }
       if (task.recur_rule) {
         try {
           const rule = JSON.parse(task.recur_rule);
@@ -249,6 +260,9 @@ export default function AddTaskScreen() {
       auto_escalate_days: Number(autoEscalateDays) || 14,
       due_date: taskType === 'deadline' ? dueDate || null : null,
       due_time: taskType === 'deadline' ? dueTime || null : null,
+      due_reminders: taskType === 'deadline' && dueReminders.length
+        ? dueReminders.map(({ amount, unit }) => ({ amount: Number(amount), unit }))
+        : null,
       escalate_days_out: Number(escalateDays),
       escalate_to_priority: escalatePriority,
       recur_rule: recurRule,
@@ -312,8 +326,14 @@ export default function AddTaskScreen() {
       }
     } else if (isEditing) {
       updateTask(Number(editId), taskData);
+      if (taskType === 'deadline') {
+        scheduleDeadlineReminders({ id: Number(editId), ...taskData }).catch(() => {});
+      }
     } else {
-      createTask(taskData);
+      const newId = createTask(taskData);
+      if (taskType === 'deadline') {
+        scheduleDeadlineReminders({ id: newId, ...taskData }).catch(() => {});
+      }
     }
     router.back();
   };
@@ -387,6 +407,43 @@ export default function AddTaskScreen() {
             placeholder="No specific time"
           />
           <Text style={styles.sublabel}>Setting a time makes this task float to the top of the list as it approaches.</Text>
+
+          {/* ── Due Reminders ── */}
+          <Text style={[styles.label, !dueTime && { color: '#bbb' }]}>Due Reminders</Text>
+          {!dueTime ? (
+            <Text style={styles.sublabel}>Set a due time to enable advance reminders.</Text>
+          ) : (
+            <>
+              {dueReminders.map(r => {
+                const offsetMs = r.unit === 'days' ? r.amount * 86400000
+                               : r.unit === 'hours' ? r.amount * 3600000
+                               : r.amount * 60000;
+                const isPast = dueDate && dueTime && (() => {
+                  const [dy, dm, dd] = dueDate.split('-').map(Number);
+                  const [dh, dmin] = dueTime.split(':').map(Number);
+                  return new Date(dy, dm - 1, dd, dh, dmin).getTime() - offsetMs <= Date.now();
+                })();
+                return (
+                  <View key={r.id} style={styles.reminderRow}>
+                    <Text style={styles.reminderLabel}>
+                      {isPast ? '⚠️ ' : ''}{r.amount} {r.unit} before
+                    </Text>
+                    {isPast && <Text style={styles.reminderWarn}>Alert already passed</Text>}
+                    <TouchableOpacity onPress={() => setDueReminders(prev => prev.filter(x => x.id !== r.id))}>
+                      <Text style={styles.reminderRemove}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+              <TouchableOpacity style={styles.addReminderBtn} onPress={() => setShowAddReminderModal(true)}>
+                <Text style={styles.addReminderText}>+ Add Reminder</Text>
+              </TouchableOpacity>
+              <Text style={styles.sublabel}>
+                {'Critical priority tasks also receive overdue alerts every 30 minutes after the due time until marked complete.'}
+              </Text>
+            </>
+          )}
+
           <Text style={styles.label}>Escalate priority when within N days</Text>
           <TextInput style={styles.input} value={escalateDays} onChangeText={setEscalateDays} keyboardType="numeric" placeholder="14" placeholderTextColor="#aaa" />
           <Text style={styles.label}>Escalate to priority</Text>
@@ -772,6 +829,54 @@ export default function AddTaskScreen() {
         </View>
       </Modal>
 
+      {/* Add Reminder modal */}
+      <Modal visible={showAddReminderModal} transparent animationType="slide" onRequestClose={() => setShowAddReminderModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Add Reminder</Text>
+            <Text style={styles.label}>Amount</Text>
+            <TextInput
+              style={styles.input}
+              value={newReminderAmount}
+              onChangeText={setNewReminderAmount}
+              keyboardType="numeric"
+              placeholder="e.g. 30"
+              placeholderTextColor="#aaa"
+            />
+            <Text style={styles.label}>Unit</Text>
+            <View style={styles.segmentRow}>
+              {['minutes','hours','days'].map(u => (
+                <TouchableOpacity
+                  key={u}
+                  style={[styles.segBtn, newReminderUnit === u && styles.segBtnActive]}
+                  onPress={() => setNewReminderUnit(u)}
+                >
+                  <Text style={[styles.segText, newReminderUnit === u && styles.segTextActive]}>
+                    {u.charAt(0).toUpperCase() + u.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity
+              style={[styles.modalOption, styles.modalOptionSelected, { marginTop: 12 }]}
+              onPress={() => {
+                const amt = Number(newReminderAmount);
+                if (!amt || amt <= 0) { Alert.alert('Invalid', 'Enter a positive number.'); return; }
+                setDueReminders(prev => [...prev, { id: Date.now(), amount: amt, unit: newReminderUnit }]);
+                setNewReminderAmount('1');
+                setNewReminderUnit('hours');
+                setShowAddReminderModal(false);
+              }}
+            >
+              <Text style={[styles.modalOptTitle, { textAlign: 'center', color: COLORS.primary }]}>Add</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.modalCancel} onPress={() => setShowAddReminderModal(false)}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Category modal */}
       <Modal visible={showCatModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
@@ -881,4 +986,18 @@ const styles = StyleSheet.create({
   catDot: { width: 12, height: 12, borderRadius: 6, marginRight: 2 },
   modalCancel: { padding: 14, alignItems: 'center', marginTop: 8 },
   modalCancelText: { fontSize: 16, color: COLORS.subtext },
+  reminderRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#fff', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 10,
+    marginBottom: 6, borderWidth: 1, borderColor: COLORS.border,
+  },
+  reminderLabel: { flex: 1, fontSize: 15, color: COLORS.text, fontWeight: '500' },
+  reminderWarn: { fontSize: 11, color: '#e67e22', marginRight: 8 },
+  reminderRemove: { fontSize: 16, color: '#e74c3c', fontWeight: '700', paddingHorizontal: 4 },
+  addReminderBtn: {
+    borderWidth: 1, borderColor: COLORS.primary, borderStyle: 'dashed',
+    borderRadius: 10, padding: 12, alignItems: 'center', marginBottom: 6,
+  },
+  addReminderText: { fontSize: 14, color: COLORS.primary, fontWeight: '600' },
 });

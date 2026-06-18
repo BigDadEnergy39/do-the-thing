@@ -83,6 +83,7 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
       try {
         const { snoozeNotification } = await import('../src/notifications/notificationService');
         if (pressAction.id === 'snooze_15') await snoozeNotification(taskId, notification.title ?? '', 15);
+        if (pressAction.id === 'snooze_30') await snoozeNotification(taskId, notification.title ?? '', 30);
         if (pressAction.id === 'snooze_60') await snoozeNotification(taskId, notification.title ?? '', 60);
       } catch { /* unavailable */ }
     }

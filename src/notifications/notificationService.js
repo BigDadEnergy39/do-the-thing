@@ -89,6 +89,21 @@ export async function createNotificationChannels() {
       name: 'Weekly Review',
       importance: AndroidImportance.HIGH,
     });
+    await notifee.createChannel({
+      id: 'deadline_reminder',
+      name: 'Deadline Reminders',
+      importance: AndroidImportance.HIGH,
+      vibration: true,
+      vibrationPattern: [0, 300, 200, 300],
+    });
+    await notifee.createChannel({
+      id: 'deadline_critical',
+      name: 'Critical Overdue Alerts',
+      importance: AndroidImportance.MAX,
+      vibration: true,
+      vibrationPattern: [0, 500, 200, 500, 200, 500],
+      sound: 'default',
+    });
   } catch { /* unavailable */ }
 }
 
@@ -101,6 +116,74 @@ const TASK_ACTIONS = [
   { title: 'Snooze 15m', pressAction: { id: 'snooze_15' } },
   { title: 'Snooze 1h',  pressAction: { id: 'snooze_60' } },
 ];
+
+const CRITICAL_OVERDUE_ACTIONS = [
+  { title: 'Mark Done',  pressAction: { id: 'complete' } },
+  { title: 'Snooze 30m', pressAction: { id: 'snooze_30' } },
+];
+
+// Schedule advance reminders + critical overdue loop for a deadline task.
+// Call this after createTask or updateTask whenever due_date/due_time/due_reminders change.
+export async function scheduleDeadlineReminders(task) {
+  await cancelAllForTask(task.id);
+  if (!task.due_date || !task.due_time) return;
+
+  const [dy, dm, dd] = task.due_date.split('-').map(Number);
+  const [dh, dmin] = task.due_time.split(':').map(Number);
+  const dueMs = new Date(dy, dm - 1, dd, dh, dmin, 0, 0).getTime();
+
+  const persona = getSetting('coach_persona') ?? 'coach';
+  const coach = getCoachText(persona);
+
+  // Advance reminders
+  let reminders = [];
+  try {
+    reminders = task.due_reminders
+      ? (typeof task.due_reminders === 'string' ? JSON.parse(task.due_reminders) : task.due_reminders)
+      : [];
+  } catch { /* malformed JSON — skip */ }
+
+  for (let i = 0; i < reminders.length; i++) {
+    const { amount, unit } = reminders[i];
+    const offsetMs = unit === 'days'    ? amount * 86400000
+                   : unit === 'hours'   ? amount * 3600000
+                   :                      amount * 60000;
+    const triggerMs = dueMs - offsetMs;
+    if (triggerMs <= Date.now()) continue;
+    try {
+      await notifee.createTriggerNotification(
+        {
+          id: `deadline-adv-${task.id}-${i}`,
+          title: 'Do The Thing',
+          body: coach.taskDueReminder(task.title, Math.round(offsetMs / 60000)),
+          data: { taskId: String(task.id) },
+          android: { channelId: 'deadline_reminder', pressAction: { id: 'default' } },
+        },
+        { type: TriggerType.TIMESTAMP, timestamp: triggerMs, alarmManager: { allowWhileIdle: true } }
+      );
+    } catch { /* unavailable */ }
+  }
+
+  // Critical overdue loop — every 30 min for 48 hours
+  if (task.base_priority >= 4) {
+    for (let i = 0; i < 96; i++) {
+      const triggerMs = dueMs + i * 30 * 60 * 1000;
+      if (triggerMs <= Date.now()) continue;
+      try {
+        await notifee.createTriggerNotification(
+          {
+            id: `deadline-ovd-${task.id}-${i}`,
+            title: '⚠️ Do The Thing',
+            body: coach.taskCriticalOverdue(task.title),
+            data: { taskId: String(task.id) },
+            android: { channelId: 'deadline_critical', actions: CRITICAL_OVERDUE_ACTIONS, pressAction: { id: 'default' } },
+          },
+          { type: TriggerType.TIMESTAMP, timestamp: triggerMs, alarmManager: { allowWhileIdle: true } }
+        );
+      } catch { /* unavailable */ }
+    }
+  }
+}
 
 export async function scheduleCoachingNotifications() {
   try {
@@ -253,10 +336,13 @@ export async function cancelAllForTask(taskId) {
 
 export async function snoozeNotification(taskId, title, snoozeMinutes = 15) {
   await cancelAllForTask(taskId);
+  const persona = getSetting('coach_persona') ?? 'coach';
+  const coach = getCoachText(persona);
+  const cleanTitle = title.replace(/^\(Snoozed\)\s*/, '').replace(/^⚠️\s*/, '');
   return scheduleTaskNotification({
     taskId,
-    title: `(Snoozed) ${title}`,
-    body: 'Reminder: this is still on your list.',
+    title: 'Do The Thing',
+    body: coach.taskDueReminder(cleanTitle, snoozeMinutes),
     triggerTimestamp: Date.now() + snoozeMinutes * 60 * 1000,
   });
 }

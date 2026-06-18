@@ -3,6 +3,14 @@
  * Persona keys: just_facts | steady_hand | mentor | coach | hype
  */
 
+function fmtLead(minutes) {
+  if (minutes < 60) return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+  const h = Math.round(minutes / 60);
+  if (h < 24) return `${h} hour${h !== 1 ? 's' : ''}`;
+  const d = Math.round(minutes / 1440);
+  return `${d} day${d !== 1 ? 's' : ''}`;
+}
+
 const PERSONAS = {
   just_facts: {
     morningBriefing: (n) => `${n} task${n !== 1 ? 's' : ''} today.`,
@@ -14,6 +22,8 @@ const PERSONAS = {
     allClear: () => `Nothing remaining.`,
     taskOverdue: (title) => `Overdue: ${title}`,
     nudge: (n) => `${n} item${n !== 1 ? 's' : ''} still open.`,
+    taskDueReminder: (title, minutes) => `${title} — due in ${fmtLead(minutes)}.`,
+    taskCriticalOverdue: (title) => `OVERDUE: ${title}`,
   },
 
   steady_hand: {
@@ -28,6 +38,8 @@ const PERSONAS = {
     allClear: () => `All clear. You handled it.`,
     taskOverdue: (title) => `Still waiting on you: ${title}`,
     nudge: (n) => `${n} thing${n !== 1 ? 's' : ''} still need your attention today.`,
+    taskDueReminder: (title, minutes) => `Heads up — "${title}" is due in ${fmtLead(minutes)}.`,
+    taskCriticalOverdue: (title) => `"${title}" is still overdue. When you're ready.`,
   },
 
   mentor: {
@@ -42,6 +54,8 @@ const PERSONAS = {
     allClear: () => `Nothing left today. Use the time well.`,
     taskOverdue: (title) => `"${title}" is still waiting. What's in the way?`,
     nudge: (n) => `Just a reminder — ${n} thing${n !== 1 ? 's' : ''} still on your list today.`,
+    taskDueReminder: (title, minutes) => `"${title}" is due in ${fmtLead(minutes)}. Worth making sure you're ready.`,
+    taskCriticalOverdue: (title) => `"${title}" is still waiting on you. This one matters — what needs to happen?`,
   },
 
   coach: {
@@ -56,6 +70,8 @@ const PERSONAS = {
     allClear: () => `All done. You showed up today. `,
     taskOverdue: (title) => `"${title}" is overdue. Time to make it happen.`,
     nudge: (n) => `${n} task${n !== 1 ? 's' : ''} still on the board. You've got this.`,
+    taskDueReminder: (title, minutes) => `"${title}" is due in ${fmtLead(minutes)} — don't let it sneak up on you.`,
+    taskCriticalOverdue: (title) => `"${title}" is overdue. This one's critical — let's get it done.`,
   },
 
   hype: {
@@ -70,6 +86,8 @@ const PERSONAS = {
     allClear: () => `NOTHING LEFT! You absolutely crushed it today! 🎉`,
     taskOverdue: (title) => `"${title}" is waiting for you to DESTROY IT! 💥`,
     nudge: (n) => `Hey! ${n} task${n !== 1 ? 's' : ''} left! You've totally got this! 🚀`,
+    taskDueReminder: (title, minutes) => `⏰ "${title}" is due in ${fmtLead(minutes)}! You've GOT this!`,
+    taskCriticalOverdue: (title) => `🚨 "${title}" is OVERDUE! Time to make it happen RIGHT NOW! 💪`,
   },
 };
 
