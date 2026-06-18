@@ -13,6 +13,7 @@ import { FastCapture } from '../src/components/FastCapture';
 import { COLORS } from '../src/components/theme';
 import { getSetting } from '../src/db/settings';
 import { getCoachText } from '../src/components/CoachText';
+import { CoachCard } from '../src/components/CoachCard';
 import { createTask, toSqliteDatetime, undoCompletion } from '../src/db/tasks';
 
 export default function TodayScreen() {
@@ -88,6 +89,14 @@ export default function TodayScreen() {
 
   const isEmpty = totalRemaining === 0 && timedGoals.length === 0 && habits.length === 0;
 
+  const criticalTitles = visibleMain
+    .filter(t => t.effectivePriority >= 4)
+    .map(t => t.title);
+
+  const missedHabits = habits
+    .filter(h => !h.checkinResponse)
+    .map(h => h.title);
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -96,13 +105,20 @@ export default function TodayScreen() {
           <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={COLORS.primary} />
         }
       >
-        {/* Date + coach nudge */}
+        {/* Date header */}
         <View style={styles.header}>
           <Text style={styles.dateText}>{today}</Text>
-          {!loading && totalRemaining > 0 && (
-            <Text style={styles.coachNudge}>{coach.morningBriefing(totalRemaining)}</Text>
-          )}
         </View>
+
+        {/* Coach card — persona-driven, time-aware */}
+        {!loading && (
+          <CoachCard
+            remaining={totalRemaining}
+            completedCount={completedToday.length}
+            criticalTitles={criticalTitles}
+            missedHabits={missedHabits}
+          />
+        )}
 
         {/* Empty state */}
         {isEmpty && !loading && (
