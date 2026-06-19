@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { AppState } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { buildDailyList } from '../engine/scheduler';
 
@@ -25,6 +26,15 @@ export function useDailyList() {
   }, []);
 
   useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
+
+  // Re-fetch when app comes back to foreground — useFocusEffect alone doesn't
+  // fire on foreground resume if the screen was already focused.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
+    return () => sub.remove();
+  }, [refresh]);
 
   return { mainItems, backlogItems, timedGoals, habits, completedToday, loading, refresh };
 }

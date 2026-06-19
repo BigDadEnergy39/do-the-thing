@@ -839,11 +839,10 @@ export default function AddTaskScreen() {
 
       {/* Add Reminder modal */}
       <Modal visible={showAddReminderModal} transparent animationType="slide" onRequestClose={() => setShowAddReminderModal(false)}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
         <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>Add Reminder</Text>
             <Text style={styles.label}>Amount</Text>
@@ -886,8 +885,8 @@ export default function AddTaskScreen() {
               <Text style={styles.modalCancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
+          </KeyboardAvoidingView>
         </View>
-        </KeyboardAvoidingView>
       </Modal>
 
       {/* Category modal */}
