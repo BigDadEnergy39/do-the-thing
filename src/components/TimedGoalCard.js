@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Animated,
-  Modal, TextInput, KeyboardAvoidingView, Platform,
+  Modal, TextInput, KeyboardAvoidingView, Platform, AppState,
 } from 'react-native';
 import {
   startTimedSession, endTimedSession,
@@ -49,6 +49,18 @@ export function TimedGoalCard({ task, onComplete, onPress }) {
     }
     return () => clearInterval(intervalRef.current);
   }, [task.id, isWeekly]);
+
+  // Re-read logged seconds when app comes back to foreground — the main useEffect
+  // only runs when task.id/isWeekly changes, so it misses overnight date rollovers.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active' && !timerRunning) {
+        const logged = isWeekly ? getWeekTimedSeconds(task.id) : getTodayTimedSeconds(task.id);
+        setBaseSeconds(logged);
+      }
+    });
+    return () => sub.remove();
+  }, [task.id, isWeekly, timerRunning]);
 
   useEffect(() => {
     if (timerRunning) {

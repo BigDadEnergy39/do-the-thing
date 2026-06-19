@@ -217,9 +217,12 @@ export function endTimedSession(sessionId) {
 
 export function getActiveTimedSession(taskId) {
   const db = getDb();
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  // Only return sessions started today — orphaned sessions from previous days
+  // (app closed while timer running) are treated as ended and ignored.
   return db.getFirstSync(
-    `SELECT * FROM timed_sessions WHERE task_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1`,
-    [taskId]
+    `SELECT * FROM timed_sessions WHERE task_id = ? AND ended_at IS NULL AND date = ? ORDER BY started_at DESC LIMIT 1`,
+    [taskId, todayUtc]
   );
 }
 
