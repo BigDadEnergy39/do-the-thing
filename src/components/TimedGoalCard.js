@@ -8,6 +8,7 @@ import {
   getActiveTimedSession, getTodayTimedSeconds, getWeekTimedSeconds,
   recordCompletion,
 } from '../db/tasks';
+import { parseUtcStamp } from '../utils/date';
 import { COLORS } from './theme';
 
 /**
@@ -43,24 +44,35 @@ export function TimedGoalCard({ task, onComplete, onPress }) {
       setSessionId(active.id);
       setTimerRunning(true);
       const elapsed = Math.floor(
-        (Date.now() - new Date(active.started_at).getTime()) / 1000
+        (Date.now() - parseUtcStamp(active.started_at).getTime()) / 1000
       );
       setElapsedSecs(elapsed);
     }
     return () => clearInterval(intervalRef.current);
   }, [task.id, isWeekly]);
 
-  // Re-read logged seconds when app comes back to foreground — the main useEffect
-  // only runs when task.id/isWeekly changes, so it misses overnight date rollovers.
+  // Resync from the DB whenever the app returns to the foreground. JS timers are
+  // paused while backgrounded, so a running timer's on-screen counter drifts
+  // behind — recompute elapsed from the session's authoritative start time so the
+  // display snaps to correct instead of lagging until the next pause. Also catches
+  // overnight date rollovers when no timer is running.
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => {
-      if (state === 'active' && !timerRunning) {
+      if (state !== 'active') return;
+      const active = getActiveTimedSession(task.id);
+      if (active) {
+        setSessionId(active.id);
+        setTimerRunning(true);
+        setElapsedSecs(Math.floor((Date.now() - parseUtcStamp(active.started_at).getTime()) / 1000));
+      } else {
         const logged = isWeekly ? getWeekTimedSeconds(task.id) : getTodayTimedSeconds(task.id);
         setBaseSeconds(logged);
+        setElapsedSecs(0);
+        setTimerRunning(false);
       }
     });
     return () => sub.remove();
-  }, [task.id, isWeekly, timerRunning]);
+  }, [task.id, isWeekly]);
 
   useEffect(() => {
     if (timerRunning) {

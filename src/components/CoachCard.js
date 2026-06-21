@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { getSetting } from '../db/settings';
 import { getCoachText, PERSONA_NUDGE_LEVEL } from './CoachText';
 import { COLORS } from './theme';
@@ -32,7 +32,7 @@ function timeOfDayMoment() {
  *   criticalTitles — string[] of critical task titles still open
  *   missedHabits   — string[] of habit titles with no check-in today
  */
-export function CoachCard({ remaining, completedCount, criticalTitles = [], missedHabits = [] }) {
+export function CoachCard({ remaining, completedCount, criticalTitles = [], missedHabits = [], onPressWrapup }) {
   const { message, moment } = useMemo(() => {
     const persona    = getSetting('coach_persona') ?? 'coach';
     const nudgeLevel = PERSONA_NUDGE_LEVEL[persona] ?? 0;
@@ -67,14 +67,28 @@ export function CoachCard({ remaining, completedCount, criticalTitles = [], miss
 
   if (!message) return null;
 
-  return (
-    <View style={[styles.card, moment === 'morning' && styles.cardMorning, moment === 'evening' && styles.cardEvening]}>
-      <Text style={styles.label}>
-        {moment === 'morning' ? 'Good Morning' : moment === 'midday' ? 'Check-In' : 'Day Wrap-Up'}
-      </Text>
+  const cardStyle = [styles.card, moment === 'morning' && styles.cardMorning, moment === 'evening' && styles.cardEvening];
+  const label = moment === 'morning' ? 'Good Morning' : moment === 'midday' ? 'Check-In' : 'Day Wrap-Up';
+  // The evening card opens the full wrap-up screen on demand (so it's reachable
+  // even if the bedtime notification is missed).
+  const tappable = moment === 'evening' && !!onPressWrapup;
+
+  const body = (
+    <>
+      <Text style={styles.label}>{label}</Text>
       <Text style={styles.message}>{message}</Text>
-    </View>
+      {tappable && <Text style={styles.wrapupHint}>Tap for your full wrap-up ›</Text>}
+    </>
   );
+
+  if (tappable) {
+    return (
+      <TouchableOpacity style={cardStyle} onPress={onPressWrapup} activeOpacity={0.85}>
+        {body}
+      </TouchableOpacity>
+    );
+  }
+  return <View style={cardStyle}>{body}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -108,5 +122,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.text,
     lineHeight: 20,
+  },
+  wrapupHint: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#8e44ad',
+    marginTop: 8,
   },
 });
