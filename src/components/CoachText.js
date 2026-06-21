@@ -17,6 +17,28 @@ function fmtLead(minutes) {
   return `${d} day${d !== 1 ? 's' : ''}`;
 }
 
+// Maps the day's completion into a coaching tier. The denominator is the day's
+// total surfaced tasks (done + still-open); habits and timed goals are tracked
+// separately and don't count here. "Clean sweep" is reserved for 100%.
+//   empty  — nothing was on the list today
+//   clean  — 100% complete
+//   almost — ≥80%
+//   half   — ≥50%
+//   some   — ≥30%
+//   low    — >0% but <30%
+//   none   — 0% (tasks remained, none done)
+export function wrapupTier(done, remaining) {
+  const total = done + remaining;
+  if (total === 0) return 'empty';
+  if (remaining === 0) return 'clean';
+  if (done === 0) return 'none';
+  const pct = done / total;
+  if (pct >= 0.8) return 'almost';
+  if (pct >= 0.5) return 'half';
+  if (pct >= 0.3) return 'some';
+  return 'low';
+}
+
 // How many days missed before each persona mentions a habit
 export const HABIT_NUDGE_THRESHOLD = {
   just_facts:  Infinity,
@@ -76,10 +98,19 @@ const PERSONAS = {
       `${n} thing${n !== 1 ? 's' : ''} on the list today. You've handled days like this before.`,
     midDaySummary: (n) =>
       `${n} still open. There's time.`,
-    eveningWrapup: (done, remaining) =>
-      `You finished ${done} today. ${remaining > 0 ? `${remaining} carries forward — that's fine.` : `Nothing left. Good work.`}`,
-    eveningBody: (done, remaining, missedHabits) =>
-      `You finished ${done} today. ${remaining > 0 ? `${remaining} carries forward — that's fine.` : `Nothing left. Good work.`}`,
+    eveningWrapup: (done, remaining) => {
+      const total = done + remaining;
+      switch (wrapupTier(done, remaining)) {
+        case 'empty':  return `Quiet day — nothing on the list. Rest up.`;
+        case 'clean':  return `All ${total} done, nothing left. Good work.`;
+        case 'almost': return `${done} of ${total} done — nearly there. The last ${remaining} can wait for tomorrow.`;
+        case 'half':   return `${done} of ${total} done. Steady progress; the rest carries forward.`;
+        case 'some':   return `${done} of ${total} done. A start — more tomorrow.`;
+        case 'low':    return `${done} of ${total} done. Slow day; tomorrow's another chance.`;
+        default:       return `Nothing checked off today. ${remaining} carries forward — pick one tomorrow and start there.`;
+      }
+    },
+    eveningBody: (done, remaining) => PERSONAS.steady_hand.eveningWrapup(done, remaining),
     weeklyReview: (stats) =>
       `This week you completed ${stats.done} tasks. You hit ${stats.goalsHit} of ${stats.goalsTotal} goals. Consistent.`,
     allClear: () => `All clear. You handled it.`,
@@ -101,12 +132,19 @@ const PERSONAS = {
     },
     midDaySummary: (n) =>
       `Checking in: ${n} task${n !== 1 ? 's' : ''} still open. The afternoon is yours.`,
-    eveningWrapup: (done, remaining) =>
-      `Today you finished ${done} things. ${remaining > 0 ? `${remaining} moves to tomorrow — choose the most important one first.` : `The list is clear. That's worth noting.`}`,
-    eveningBody: (done, remaining, missedHabits) => {
-      const base = `Today you finished ${done} things. ${remaining > 0 ? `${remaining} moves to tomorrow — choose the most important one first.` : `The list is clear. That's worth noting.`}`;
-      return base;
+    eveningWrapup: (done, remaining) => {
+      const total = done + remaining;
+      switch (wrapupTier(done, remaining)) {
+        case 'empty':  return `Nothing on the list today. Tomorrow, choose one thing that matters and start there.`;
+        case 'clean':  return `You finished all ${total} today and cleared the list. That's worth noting.`;
+        case 'almost': return `${done} of ${total} done — you nearly cleared it. Just ${remaining} left for tomorrow.`;
+        case 'half':   return `${done} of ${total} done. Real progress — finish what matters most tomorrow.`;
+        case 'some':   return `${done} of ${total} done. A foundation to build on tomorrow.`;
+        case 'low':    return `${done} of ${total} done. Some days are like that — tomorrow's a fresh start.`;
+        default:       return `Nothing got done today, and ${remaining} waits for tomorrow. Start with the one that matters most.`;
+      }
     },
+    eveningBody: (done, remaining) => PERSONAS.mentor.eveningWrapup(done, remaining),
     weeklyReview: (stats) =>
       `This week: ${stats.done} tasks done, ${stats.goalsHit}/${stats.goalsTotal} goals hit. ${stats.streak > 0 ? `You've been showing up. That matters.` : `Next week is a fresh start.`}`,
     allClear: () => `Nothing left today. Use the time well.`,
@@ -128,10 +166,20 @@ const PERSONAS = {
     },
     midDaySummary: (n) =>
       `You've still got ${n} to go. Plenty of day left — finish strong.`,
-    eveningWrapup: (done, remaining) =>
-      `Nice work today — ${done} done. ${remaining > 0 ? `${remaining} rolls to tomorrow. Hit the ground running.` : `Clean sweep. That's how it's done.`}`,
+    eveningWrapup: (done, remaining) => {
+      const total = done + remaining;
+      switch (wrapupTier(done, remaining)) {
+        case 'empty':  return `Nothing on the board today. Tomorrow, let's put a few up and knock them down.`;
+        case 'clean':  return `Clean sweep — all ${total} knocked out. That's how it's done.`;
+        case 'almost': return `So close — ${done} of ${total} done! Just ${remaining} left to grab tomorrow.`;
+        case 'half':   return `Solid — ${done} of ${total} done. Keep that pace and finish strong tomorrow.`;
+        case 'some':   return `Made progress — ${done} of ${total} done. Build on it tomorrow.`;
+        case 'low':    return `${done} of ${total} done. You can get more tomorrow — pick one and go.`;
+        default:       return `Nothing checked off yet — ${remaining} still on the board. Tomorrow, pick one and go.`;
+      }
+    },
     eveningBody: (done, remaining, missedHabits) => {
-      let msg = `${done} done today. ${remaining > 0 ? `${remaining} carries to tomorrow — hit the ground running.` : `Clean sweep — that's how it's done.`}`;
+      let msg = PERSONAS.coach.eveningWrapup(done, remaining);
       if (missedHabits?.length) msg += ` Habit${missedHabits.length !== 1 ? 's' : ''} to get back to: ${missedHabits.join(', ')}.`;
       return msg;
     },
@@ -162,10 +210,20 @@ const PERSONAS = {
     },
     midDaySummary: (n) =>
       `You're on fire! Just ${n} more to crush today! 💪`,
-    eveningWrapup: (done, remaining) =>
-      `${done} tasks DONE — you absolutely showed up today! 🙌 ${remaining > 0 ? `${remaining} moves to tomorrow. Fresh start, full energy!` : `CLEAN SWEEP! Incredible work! 🎯`}`,
+    eveningWrapup: (done, remaining) => {
+      const total = done + remaining;
+      switch (wrapupTier(done, remaining)) {
+        case 'empty':  return `Nothing on the list today — tomorrow's a clean slate. Let's make it a big one! 🔥`;
+        case 'clean':  return `CLEAN SWEEP! All ${total} DONE! That's how it's done! 🎯`;
+        case 'almost': return `SO CLOSE — ${done} of ${total}! 🔥 Grab the last ${remaining} tomorrow and finish it off!`;
+        case 'half':   return `Halfway hero — ${done} of ${total} done! 💪 Big finish tomorrow!`;
+        case 'some':   return `Made progress — ${done} of ${total} knocked out! 🙌 Keep it rolling tomorrow!`;
+        case 'low':    return `${done} of ${total} done — every one counts! Tomorrow's your shot to CRUSH the rest! 💪`;
+        default:       return `Nothing checked off yet — ${remaining} waiting for you to CRUSH tomorrow! 💪`;
+      }
+    },
     eveningBody: (done, remaining, missedHabits) => {
-      let msg = `${done} tasks DONE — you showed up today! 🙌 ${remaining > 0 ? `${remaining} carries to tomorrow — fresh start, full energy!` : `CLEAN SWEEP! Incredible! 🎯`}`;
+      let msg = PERSONAS.hype.eveningWrapup(done, remaining);
       if (missedHabits?.length) msg += ` ${missedHabits.length === 1 ? `"${missedHabits[0]}" slipped today — come back strong tomorrow! 💪` : `A couple habits slipped — no big deal, tomorrow is a new shot! 🔥`}`;
       return msg;
     },

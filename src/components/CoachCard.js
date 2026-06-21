@@ -4,19 +4,25 @@ import { getSetting } from '../db/settings';
 import { getCoachText, PERSONA_NUDGE_LEVEL } from './CoachText';
 import { COLORS } from './theme';
 
-// Returns 'morning' | 'midday' | 'evening' based on current time vs schedule settings
+// Returns 'morning' | 'midday' | 'evening' based on current time vs schedule settings.
+// All boundaries are derived from the user's configured times — nothing is hardcoded.
+// The wrap-up ("evening") tone begins one hour before the Bedtime setting.
 function timeOfDayMoment() {
   const now = new Date();
-  const h = now.getHours();
-  const morningTime = getSetting('morning_briefing_time') ?? '07:00';
-  const bedtime     = getSetting('bedtime') ?? '22:00';
-  const [mh] = morningTime.split(':').map(Number);
-  const [bh] = bedtime.split(':').map(Number);
-  if (h < mh) return null;          // before morning briefing window
-  if (h >= bh) return null;         // after bedtime
-  if (h < 12)  return 'morning';
-  if (h < 17)  return 'midday';
-  return 'evening';
+  const mins = now.getHours() * 60 + now.getMinutes();
+  const toMins = (str, fallback) => {
+    const [h, m] = (str ?? fallback).split(':').map(Number);
+    return h * 60 + m;
+  };
+  const morning = toMins(getSetting('morning_briefing_time'), '07:00');
+  const midday  = toMins(getSetting('summary_time_1'), '12:00');
+  const bedtime = toMins(getSetting('bedtime'), '22:00');
+  const wrapStart = bedtime - 60; // wrap-up tone kicks in 1 hour before bedtime
+
+  if (mins < morning) return null;         // overnight / before the day starts
+  if (mins >= wrapStart) return 'evening'; // final wind-down through the evening
+  if (mins >= midday) return 'midday';
+  return 'morning';
 }
 
 /**

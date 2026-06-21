@@ -1,0 +1,25 @@
+Do The Thing is a personal coaching task manager that acts less like a static
+checklist and more like an active coach — surfacing what matters today and
+nudging you toward it.
+
+Features:
+
+* Seven task types: simple to-dos, deadlines, recurring tasks,
+  randomized-interval tasks, important annual dates, timed goals, and daily
+  habit check-ins.
+* A two-factor engine that ranks tasks by both urgency (time pressure) and
+  importance (priority), with automatic escalation and a per-task priority
+  ceiling so nothing quietly takes over your list.
+* Five coach personas, from "Just the Facts" to "Hype Person," each with its
+  own voice across daily briefings, check-ins, and your evening wrap-up.
+* Adjustable notification intensity and a full daily cadence: morning briefing,
+  midday check-ins, evening wrap-up, and a weekly review.
+* On-device backup and restore — export a copy yourself or let the app keep a
+  rolling weekly backup automatically.
+
+Privacy:
+
+Do The Thing is fully offline. There is no account, no cloud sync, no
+analytics, no ads, and no tracking. All data stays on your device.
+Notifications are scheduled locally and do not use Google Play Services or
+Firebase.

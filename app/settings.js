@@ -211,7 +211,7 @@ export default function SettingsScreen() {
         { key: 'morning_briefing_time', label: 'Morning briefing' },
         { key: 'summary_time_1', label: 'Mid-day check-in' },
         { key: 'summary_time_2', label: 'Afternoon check-in' },
-        { key: 'bedtime', label: 'Bedtime (wrap-up 15 min before)' },
+        { key: 'bedtime', label: 'Bedtime (daily wrap-up fires at this time)' },
         { key: 'weekly_review_time', label: 'Sunday weekly review time' },
       ].map(({ key, label }) => (
         <View key={key} style={styles.timeRow}>

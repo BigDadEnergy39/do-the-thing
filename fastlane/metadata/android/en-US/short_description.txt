@@ -1,0 +1,1 @@
+A local-first personal coach that surfaces the right tasks each day.

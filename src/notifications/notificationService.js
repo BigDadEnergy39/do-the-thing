@@ -14,6 +14,7 @@ import notifee, {
 } from '@notifee/react-native';
 import { getSetting, setSetting } from '../db/settings';
 import { getCoachText, PERSONA_NUDGE_LEVEL, COMPLETION_ACK_THRESHOLD, HABIT_NUDGE_THRESHOLD } from '../components/CoachText';
+import { localDateStr } from '../utils/date';
 
 const BACKGROUND_TASK = 'DTT_NOTIFICATION_CHECK';
 
@@ -195,6 +196,28 @@ export async function scheduleDeadlineReminders(task) {
   }
 }
 
+// ── Evening wrap-up content ──────────────────────────────────────────────────
+// Computes the day's live counts for the wrap-up. Excludes timed_goal
+// completions (those are time logs, not "done" markers) so the count matches
+// what the user sees on the Today screen.
+function computeEveningWrapup() {
+  const { buildDailyList } = require('../engine/scheduler');
+  const { getTodayCompletedTasks } = require('../db/tasks');
+  const { mainItems, backlogItems, habits } = buildDailyList();
+  const remaining = mainItems.length + backlogItems.length;
+  const done = getTodayCompletedTasks().filter(t => t.task_type !== 'timed_goal').length;
+  const missedHabits = habits.filter(h => !h.checkinResponse).map(h => h.title);
+  return { done, remaining, missedHabits };
+}
+
+function eveningWrapupBody(persona) {
+  const coach = getCoachText(persona);
+  const { done, remaining, missedHabits } = computeEveningWrapup();
+  return coach.eveningBody
+    ? coach.eveningBody(done, remaining, missedHabits)
+    : coach.eveningWrapup(done, remaining);
+}
+
 export async function scheduleCoachingNotifications() {
   try {
     // Cancel existing coaching notifications by stable ID
@@ -265,21 +288,20 @@ export async function scheduleCoachingNotifications() {
 
     // ── Evening wrap-up ───────────────────────────────────────────────────────
     // Background task fires the real content-rich version. This is the fallback.
+    // Wrap-up fires at the Bedtime setting (no offset — keeps it predictable).
     const bedtime  = getSetting('bedtime') ?? '22:00';
     const [bh, bm] = bedtime.split(':').map(Number);
-    const wrapHour = bm >= 15 ? bh : bh - 1;
-    const wrapMin  = bm >= 15 ? bm - 15 : bm + 45;
     await notifee.createTriggerNotification(
       {
         id: IDS.EVENING,
         title: 'Day Wrap-Up',
-        body: coach.eveningWrapup(0, 0),
+        body: eveningWrapupBody(persona),
         data: { coaching: 'evening' },
         android: { channelId: 'summary', pressAction: { id: 'default' } },
       },
       {
         type: TriggerType.TIMESTAMP,
-        timestamp: nextDailyTimestamp(wrapHour, wrapMin),
+        timestamp: nextDailyTimestamp(bh, bm),
         repeatFrequency: RepeatFrequency.DAILY,
         alarmManager: { allowWhileIdle: true },
       }
@@ -343,6 +365,19 @@ export async function cancelAllForTask(taskId) {
       }
     }
   } catch { /* unavailable */ }
+}
+
+// Mark a task complete in response to a notification "Mark Done" action.
+// Records the completion (same effect as the in-app check) and cancels any
+// pending alarms for the task — critically, this stops the critical-overdue
+// loop, which otherwise keeps firing every 30 min because the action button
+// had no handler. Called from both the foreground and background event handlers.
+export async function completeTaskFromNotification(taskId) {
+  try {
+    const { recordCompletion } = require('../db/tasks');
+    recordCompletion(Number(taskId));
+  } catch { /* db unavailable */ }
+  await cancelAllForTask(taskId);
 }
 
 export async function snoozeNotification(taskId, title, snoozeMinutes = 15) {
@@ -462,10 +497,40 @@ export async function refreshMidayNudges() {
   }
 }
 
+// Reschedules the bedtime wrap-up with the day's current counts. Called as the
+// app is used, so the notification reflects real completions even when the
+// background task doesn't fire near bedtime (Android throttles it). Scheduled
+// for all personas, matching scheduleCoachingNotifications.
+export async function refreshEveningWrapup() {
+  try {
+    await notifee.cancelTriggerNotification(IDS.EVENING).catch(() => {});
+    const persona  = getSetting('coach_persona') ?? 'coach';
+    const bedtime  = getSetting('bedtime') ?? '22:00';
+    const [bh, bm] = bedtime.split(':').map(Number);
+    await notifee.createTriggerNotification(
+      {
+        id: IDS.EVENING,
+        title: 'Day Wrap-Up',
+        body: eveningWrapupBody(persona),
+        data: { coaching: 'evening' },
+        android: { channelId: 'summary', pressAction: { id: 'default' } },
+      },
+      {
+        type: TriggerType.TIMESTAMP,
+        timestamp: nextDailyTimestamp(bh, bm),
+        repeatFrequency: RepeatFrequency.DAILY,
+        alarmManager: { allowWhileIdle: true },
+      }
+    );
+  } catch (e) {
+    console.log('refreshEveningWrapup error:', e.message);
+  }
+}
+
 // Fire morning briefing with live task data. Deduped — only fires once per calendar day.
 async function fireMorningBriefing() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateStr();
     if (getSetting('last_morning_briefing_date') === today) return;
 
     const persona    = getSetting('coach_persona') ?? 'coach';
@@ -499,26 +564,18 @@ async function fireMorningBriefing() {
 // Fire evening wrap-up with live task + habit data. Deduped — only fires once per calendar day.
 async function fireEveningWrapup() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateStr();
     if (getSetting('last_evening_wrapup_date') === today) return;
 
     const persona    = getSetting('coach_persona') ?? 'coach';
     const nudgeLevel = PERSONA_NUDGE_LEVEL[persona] ?? 0;
     if (nudgeLevel === 0) return;
 
-    const { buildDailyList }      = require('../engine/scheduler');
-    const { getTodayCompletedTasks } = require('../db/tasks');
-    const { mainItems, backlogItems, habits } = buildDailyList();
-    const remaining     = mainItems.length + backlogItems.length;
-    const completedToday = getTodayCompletedTasks();
-    const missedHabits  = habits
-      .filter(h => !h.checkinResponse)
-      .map(h => h.title);
-
     const coach = getCoachText(persona);
+    const { done, remaining, missedHabits } = computeEveningWrapup();
     const body  = coach.eveningBody
-      ? coach.eveningBody(completedToday.length, remaining, missedHabits)
-      : coach.eveningWrapup(completedToday.length, remaining);
+      ? coach.eveningBody(done, remaining, missedHabits)
+      : coach.eveningWrapup(done, remaining);
 
     await notifee.displayNotification({
       id: IDS.EVENING,
@@ -531,10 +588,7 @@ async function fireEveningWrapup() {
 
     // Fire habit nudges alongside the evening wrap-up for coach/hype
     if (missedHabits.length > 0) {
-      const missedWithDays = habits
-        .filter(h => !h.checkinResponse)
-        .map(h => ({ title: h.title, daysMissed: 1 }));
-      await fireHabitNudges(missedWithDays);
+      await fireHabitNudges(missedHabits.map(title => ({ title, daysMissed: 1 })));
     }
   } catch (e) {
     console.log('fireEveningWrapup error:', e.message);
@@ -559,11 +613,7 @@ export async function registerBackgroundTask() {
     TaskManager.defineTask(BACKGROUND_TASK, async () => {
       try {
         const morningTime = getSetting('morning_briefing_time') ?? '07:00';
-        const bedtime     = getSetting('bedtime') ?? '22:00';
-        const [bh, bm]    = bedtime.split(':').map(Number);
-        const wrapMin     = bm >= 15 ? bm - 15 : bm + 45;
-        const wrapHour    = bm >= 15 ? bh : bh - 1;
-        const eveningTime = `${String(wrapHour).padStart(2, '0')}:${String(wrapMin).padStart(2, '0')}`;
+        const eveningTime = getSetting('bedtime') ?? '22:00'; // wrap-up fires at bedtime
 
         if (isNearTime(morningTime)) await fireMorningBriefing();
         if (isNearTime(eveningTime)) await fireEveningWrapup();

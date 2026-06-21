@@ -25,6 +25,34 @@ function routeFromCoachingData(data, router) {
   }
 }
 
+// Handles an action-button press from a notification (Mark Done / Snooze).
+// Shared by the foreground and background event handlers so the behavior is
+// identical regardless of app state. Defined at module level (no React scope)
+// so the background handler can use it too.
+async function handleNotificationAction(detail) {
+  const { pressAction, notification } = detail ?? {};
+  const taskId = notification?.data?.taskId;
+  if (!taskId || !pressAction) return;
+  try {
+    const {
+      completeTaskFromNotification,
+      snoozeNotification,
+    } = await import('../src/notifications/notificationService');
+    if (pressAction.id === 'complete') {
+      await completeTaskFromNotification(taskId);
+      // Clear the notification the user just acted on (cancelAllForTask only
+      // clears *pending* triggers, not the one already on screen).
+      if (notification?.id) await notifee.cancelNotification(notification.id).catch(() => {});
+    } else if (pressAction.id === 'snooze_15') {
+      await snoozeNotification(taskId, notification.title ?? '', 15);
+    } else if (pressAction.id === 'snooze_30') {
+      await snoozeNotification(taskId, notification.title ?? '', 30);
+    } else if (pressAction.id === 'snooze_60') {
+      await snoozeNotification(taskId, notification.title ?? '', 60);
+    }
+  } catch { /* service unavailable */ }
+}
+
 // Routes notification taps to the appropriate screen (foreground + cold-start)
 function NotificationHandler() {
   const router = useRouter();
@@ -41,6 +69,8 @@ function NotificationHandler() {
     const unsub = notifee.onForegroundEvent(({ type, detail }) => {
       if (type === EventType.PRESS) {
         routeFromCoachingData(detail.notification?.data, router);
+      } else if (type === EventType.ACTION_PRESS) {
+        handleNotificationAction(detail);
       }
     });
 
@@ -77,16 +107,7 @@ async function setupNotifications() {
 // Must be registered at module level, outside React components.
 notifee.onBackgroundEvent(async ({ type, detail }) => {
   if (type === EventType.ACTION_PRESS) {
-    const { pressAction, notification } = detail;
-    const taskId = notification?.data?.taskId;
-    if (taskId) {
-      try {
-        const { snoozeNotification } = await import('../src/notifications/notificationService');
-        if (pressAction.id === 'snooze_15') await snoozeNotification(taskId, notification.title ?? '', 15);
-        if (pressAction.id === 'snooze_30') await snoozeNotification(taskId, notification.title ?? '', 30);
-        if (pressAction.id === 'snooze_60') await snoozeNotification(taskId, notification.title ?? '', 60);
-      } catch { /* unavailable */ }
-    }
+    await handleNotificationAction(detail);
   }
 });
 

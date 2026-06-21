@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { AppState } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { buildDailyList } from '../engine/scheduler';
+import { refreshEveningWrapup } from '../notifications/notificationService';
 
 export function useDailyList() {
   const [mainItems, setMainItems] = useState([]);
@@ -23,6 +24,9 @@ export function useDailyList() {
     } finally {
       setLoading(false);
     }
+    // Keep the bedtime wrap-up's counts in sync with what the user just did,
+    // so it doesn't fire stale numbers (e.g. "0 done") at bedtime.
+    refreshEveningWrapup().catch(() => {});
   }, []);
 
   useFocusEffect(useCallback(() => { refresh(); }, [refresh]));

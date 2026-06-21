@@ -4,6 +4,8 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getTaskById, archiveTask, updateTask, getCompletionsForTask } from '../../src/db/tasks';
+import { cancelAllForTask } from '../../src/notifications/notificationService';
+import { parseLocalDay, parseUtcStamp } from '../../src/utils/date';
 import { COLORS, PRIORITY_COLORS, PRIORITY_LABELS } from '../../src/components/theme';
 
 export default function TaskDetailScreen() {
@@ -27,6 +29,9 @@ export default function TaskDetailScreen() {
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete', style: 'destructive', onPress: () => {
+          // Cancel any pending alarms (e.g. a deadline's overdue loop) so a
+          // deleted task can't keep firing notifications.
+          cancelAllForTask(task.id).catch(() => {});
           archiveTask(task.id);
           router.back();
         },
@@ -39,8 +44,9 @@ export default function TaskDetailScreen() {
   };
 
   const formatDate = (iso) => {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleDateString('en-US', {
+    const d = parseUtcStamp(iso); // stored as UTC — render in the user's local time
+    if (!d) return '—';
+    return d.toLocaleDateString('en-US', {
       month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
     });
   };
@@ -78,7 +84,7 @@ export default function TaskDetailScreen() {
       <View style={styles.detailsCard}>
         <DetailRow label="Type" value={task.task_type.replace('_', ' ')} />
         {task.task_type === 'deadline' && <>
-          <DetailRow label="Due Date" value={task.due_date ? new Date(task.due_date).toLocaleDateString() : '—'} />
+          <DetailRow label="Due Date" value={task.due_date ? (parseLocalDay(task.due_date)?.toLocaleDateString() ?? '—') : '—'} />
           <DetailRow label="Escalates at" value={task.escalate_days_out ? `${task.escalate_days_out} days out` : '—'} />
         </>}
         {task.task_type === 'recurring' && <>
