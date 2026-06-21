@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { TouchableOpacity, Text } from 'react-native';
+import { TouchableOpacity, Text, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { initDb } from '../src/db/schema';
 import notifee, { EventType } from '@notifee/react-native';
@@ -23,6 +23,15 @@ function routeFromCoachingData(data, router) {
   } else if (data.coaching === 'morning' || data.coaching === 'midday') {
     router.push('/');
   }
+}
+
+// A notification pressed while the app is backgrounded-but-alive delivers its
+// event to onBackgroundEvent (module scope, no router), not onForegroundEvent.
+// We stash the route here and let NotificationHandler navigate once the app is
+// active again — otherwise the tap just resumes whatever screen was last open.
+let pendingCoaching = null;
+function setPendingCoaching(data) {
+  if (data?.coaching) pendingCoaching = data;
 }
 
 // Handles an action-button press from a notification (Mark Done / Snooze).
@@ -53,19 +62,34 @@ async function handleNotificationAction(detail) {
   } catch { /* service unavailable */ }
 }
 
-// Routes notification taps to the appropriate screen (foreground + cold-start)
+// Routes notification taps to the appropriate screen across all app states:
+// foreground (onForegroundEvent), cold-start (getInitialNotification), and
+// background-resume (pendingCoaching, consumed when the app becomes active).
 function NotificationHandler() {
   const router = useRouter();
 
   useEffect(() => {
-    // App was opened from a killed state by tapping a notification
+    const consumePending = () => {
+      if (!pendingCoaching) return;
+      const data = pendingCoaching;
+      pendingCoaching = null;
+      routeFromCoachingData(data, router);
+    };
+
+    // Cold start — app launched by tapping a notification
     notifee.getInitialNotification()
       .then(initial => {
-        if (initial) routeFromCoachingData(initial.notification?.data, router);
+        if (initial?.notification?.data) {
+          setPendingCoaching(initial.notification.data);
+          consumePending();
+        }
       })
       .catch(() => {});
 
-    // App is in the foreground — handle taps and action button presses
+    // Background-resume — onBackgroundEvent already stashed the route; pick it up now
+    consumePending();
+
+    // Foreground — handle taps and action buttons immediately
     const unsub = notifee.onForegroundEvent(({ type, detail }) => {
       if (type === EventType.PRESS) {
         routeFromCoachingData(detail.notification?.data, router);
@@ -74,7 +98,12 @@ function NotificationHandler() {
       }
     });
 
-    return () => unsub();
+    // ...and whenever the app returns to the foreground after a background press
+    const appStateSub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') consumePending();
+    });
+
+    return () => { unsub(); appStateSub.remove(); };
   }, []);
 
   return null;
@@ -108,6 +137,9 @@ async function setupNotifications() {
 notifee.onBackgroundEvent(async ({ type, detail }) => {
   if (type === EventType.ACTION_PRESS) {
     await handleNotificationAction(detail);
+  } else if (type === EventType.PRESS) {
+    // Can't navigate from here (no router) — stash it for NotificationHandler.
+    setPendingCoaching(detail.notification?.data);
   }
 });
 

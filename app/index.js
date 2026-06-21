@@ -117,6 +117,7 @@ export default function TodayScreen() {
             completedCount={completedToday.length}
             criticalTitles={criticalTitles}
             missedHabits={missedHabits}
+            onPressWrapup={() => router.push('/review')}
           />
         )}
 
