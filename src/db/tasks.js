@@ -1,4 +1,5 @@
 import { getDb } from './schema';
+import { localDateStr } from '../utils/date';
 
 export function getAllTasks() {
   const db = getDb();
@@ -187,7 +188,7 @@ export function getWeekTimedSeconds(taskId) {
 
 export function startTimedSession(taskId) {
   const db = getDb();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateStr(); // local day — must match getActiveTimedSession
   const result = db.runSync(
     `INSERT INTO timed_sessions (task_id, started_at, date) VALUES (?, datetime('now'), ?)`,
     [taskId, today]
@@ -217,12 +218,11 @@ export function endTimedSession(sessionId) {
 
 export function getActiveTimedSession(taskId) {
   const db = getDb();
-  const todayUtc = new Date().toISOString().slice(0, 10);
-  // Only return sessions started today — orphaned sessions from previous days
+  const today = localDateStr(); // local day — sessions from previous local days
   // (app closed while timer running) are treated as ended and ignored.
   return db.getFirstSync(
     `SELECT * FROM timed_sessions WHERE task_id = ? AND ended_at IS NULL AND date = ? ORDER BY started_at DESC LIMIT 1`,
-    [taskId, todayUtc]
+    [taskId, today]
   );
 }
 

@@ -5,23 +5,29 @@ import { COLORS } from '../src/components/theme';
 import { getSetting } from '../src/db/settings';
 import { getCoachText } from '../src/components/CoachText';
 import { getTodayCompletedTasks, getTodayTimedSeconds, getWeekTimedSeconds } from '../src/db/tasks';
-import { buildDailyList } from '../src/engine/scheduler';
+import { buildDailyList, getTomorrowCritical } from '../src/engine/scheduler';
 
 export default function ReviewScreen() {
   const router = useRouter();
   const persona = getSetting('coach_persona') ?? 'coach';
   const coach = getCoachText(persona);
 
-  const { completed, remaining, timedWithProgress } = useMemo(() => {
+  const { completed, remaining, timedWithProgress, missedHabits, tomorrowCritical } = useMemo(() => {
     const completed = getTodayCompletedTasks();
-    const { mainItems, backlogItems, timedGoals } = buildDailyList();
+    const { mainItems, backlogItems, timedGoals, habits } = buildDailyList();
     const remaining = [...mainItems, ...backlogItems];
     const timedWithProgress = timedGoals.map(t => ({
       ...t,
       loggedSeconds: t.goal_reset === 'weekly' ? getWeekTimedSeconds(t.id) : getTodayTimedSeconds(t.id),
       goalSeconds: (t.goal_minutes ?? 0) * 60,
     }));
-    return { completed, remaining, timedWithProgress };
+    const missedHabits = habits.filter(h => !h.checkinResponse).map(h => h.title);
+    // Don't repeat anything already shown in "Carrying Forward" — this app
+    // surfaces deadlines in the day list regardless of distance, so a deadline
+    // due tomorrow would otherwise appear twice on this screen.
+    const remainingIds = new Set(remaining.map(t => t.id));
+    const tomorrowCritical = getTomorrowCritical().filter(t => !remainingIds.has(t.id));
+    return { completed, remaining, timedWithProgress, missedHabits, tomorrowCritical };
   }, []);
 
   const today = new Date().toLocaleDateString('en-US', {
@@ -72,6 +78,36 @@ export default function ReviewScreen() {
         </View>
       )}
 
+      {tomorrowCritical.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Coming Up Tomorrow</Text>
+          {tomorrowCritical.map(t => (
+            <TouchableOpacity
+              key={t.id}
+              style={styles.row}
+              onPress={() => router.push(`/task/${t.id}`)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.bullet}>·</Text>
+              <Text style={styles.taskTitle}>{t.title}</Text>
+              <Text style={styles.tomorrowLabel}>{t.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {missedHabits.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Habits To Get Back To</Text>
+          {missedHabits.map((title, i) => (
+            <View key={i} style={styles.row}>
+              <Text style={styles.bullet}>·</Text>
+              <Text style={styles.taskTitle}>{title}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       {timedWithProgress.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Goals</Text>
@@ -116,6 +152,7 @@ const styles = StyleSheet.create({
   checkmark: { fontSize: 14, color: COLORS.success, marginTop: 2, width: 18 },
   bullet: { fontSize: 20, color: COLORS.subtext, lineHeight: 22, width: 18 },
   taskTitle: { fontSize: 15, color: COLORS.text, flex: 1, lineHeight: 22 },
+  tomorrowLabel: { fontSize: 12, color: COLORS.subtext, marginLeft: 8, alignSelf: 'center' },
   goalRow: { marginBottom: 14 },
   goalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 },
   goalTime: { fontSize: 12, color: COLORS.subtext },

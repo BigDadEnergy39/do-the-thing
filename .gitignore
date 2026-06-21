@@ -35,3 +35,6 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Design source files — high-res master art (icons are exported into assets/, not bundled)
+design/

@@ -5,6 +5,7 @@
 
 import { getAllTasks, getLastCompletion, updateTask, getTodayCompletedTasks } from '../db/tasks';
 import { getTodayHabitCheckin, getHabitStreak } from '../db/habits';
+import { localDateStr } from '../utils/date';
 
 const TODAY = () => {
   const d = new Date();
@@ -201,7 +202,7 @@ function shouldAutoHide(task, today) {
 }
 
 function recordSkipIfNeeded(task, today) {
-  const todayStr = today.toISOString().slice(0, 10);
+  const todayStr = localDateStr(today);
   if (task.last_skip_date === todayStr) return; // already counted today
   updateTask(task.id, {
     skip_count: (task.skip_count ?? 0) + 1,
@@ -212,7 +213,6 @@ function recordSkipIfNeeded(task, today) {
 // ─── Main builder ─────────────────────────────────────────────────────────────
 export function buildDailyList() {
   const today = TODAY();
-  const todayStr = today.toISOString().slice(0, 10);
   const allTasks = getAllTasks();
 
   const mainItems = [];    // top + normal priority, active today
@@ -390,11 +390,44 @@ export function buildDailyList() {
   return { mainItems, backlogItems, timedGoals, habits, completedToday };
 }
 
+// Read-only lookahead for the bedtime wrap-up: which high-stakes items land
+// tomorrow. Deliberately does NOT touch the DB (unlike buildDailyList, which
+// records skips as a side effect), so it's safe to call from the review screen.
+//   - deadlines due tomorrow (not yet completed)
+//   - important dates occurring tomorrow
+//   - recurring tasks scheduled tomorrow at High/Critical priority
+export function getTomorrowCritical() {
+  const today = TODAY();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const items = [];
+
+  for (const task of getAllTasks()) {
+    if (task.task_type === 'deadline') {
+      if (getLastCompletion(task.id)) continue; // already done
+      const due = toDate(task.due_date);
+      if (due && daysBetween(today, due) === 1) {
+        items.push({ id: task.id, title: task.title, label: 'Due tomorrow' });
+      }
+    } else if (task.task_type === 'date_anchor') {
+      const next = computeAnchorNextDate(task, today);
+      if (next && daysBetween(today, next) === 1) {
+        items.push({ id: task.id, title: task.title, label: task.anchor_label ?? 'Tomorrow' });
+      }
+    } else if (task.task_type === 'recurring') {
+      if (isRecurringDueToday(task, tomorrow) && (task.base_priority ?? 2) >= 3) {
+        items.push({ id: task.id, title: task.title, label: 'Tomorrow' });
+      }
+    }
+  }
+  return items;
+}
+
 export function advanceRandomizedTask(task) {
   const min = task.rand_min_days ?? 7;
   const max = task.rand_max_days ?? 14;
   const days = min + Math.floor(Math.random() * (max - min + 1));
   const next = new Date();
   next.setDate(next.getDate() + days);
-  return next.toISOString().slice(0, 10);
+  return localDateStr(next);
 }

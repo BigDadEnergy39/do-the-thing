@@ -7,8 +7,9 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { DatePickerField } from '../src/components/DatePickerField';
 import { TimePickerField } from '../src/components/TimePickerField';
 import { createTask, updateTask, getTaskById } from '../src/db/tasks';
-import { scheduleDeadlineReminders } from '../src/notifications/notificationService';
+import { scheduleDeadlineReminders, cancelAllForTask } from '../src/notifications/notificationService';
 import { advanceRandomizedTask } from '../src/engine/scheduler';
+import { localDateStr } from '../src/utils/date';
 import { getAllCategories } from '../src/db/categories';
 import { COLORS, PRIORITY_COLORS, PRIORITY_LABELS } from '../src/components/theme';
 
@@ -242,7 +243,23 @@ export default function AddTaskScreen() {
       } else if (recurType === 'daily') {
         recurRule = JSON.stringify({ type: 'daily' });
       } else if (recurType === 'interval') {
-        recurRule = JSON.stringify({ type: 'interval', interval: Number(recurInterval), start_date: new Date().toISOString().slice(0, 10) });
+        recurRule = JSON.stringify({ type: 'interval', interval: Number(recurInterval), start_date: localDateStr() });
+      }
+    }
+
+    // Validate the randomized day range before it reaches advanceRandomizedTask —
+    // blank/non-numeric/negative values otherwise produce an Invalid Date that
+    // throws on toISOString(), making Save silently fail.
+    if (taskType === 'randomized') {
+      const min = Number(randMin);
+      const max = Number(randMax);
+      if (!Number.isInteger(min) || !Number.isInteger(max) || min < 1 || max < 1) {
+        Alert.alert('Check the day range', 'Enter whole numbers of days (1 or more) for both the minimum and maximum.');
+        return;
+      }
+      if (min > max) {
+        Alert.alert('Check the day range', 'The minimum days can’t be greater than the maximum.');
+        return;
       }
     }
 
@@ -309,6 +326,9 @@ export default function AddTaskScreen() {
           anchor_label: anchorLabelVal,
           escalate_days_out: leadToDays(action.leadAmount, action.leadUnit),
         });
+        // If this was previously a deadline, clear its scheduled alarms — a
+        // date_anchor doesn't use them, and they'd otherwise keep firing.
+        cancelAllForTask(Number(editId)).catch(() => {});
       } else {
         for (const action of validActions) {
           createTask({
@@ -327,7 +347,11 @@ export default function AddTaskScreen() {
     } else if (isEditing) {
       updateTask(Number(editId), taskData);
       if (taskType === 'deadline') {
+        // scheduleDeadlineReminders cancels existing alarms before rescheduling.
         scheduleDeadlineReminders({ id: Number(editId), ...taskData }).catch(() => {});
+      } else {
+        // Type changed away from deadline — clear any orphaned alarms left behind.
+        cancelAllForTask(Number(editId)).catch(() => {});
       }
     } else {
       const newId = createTask(taskData);
