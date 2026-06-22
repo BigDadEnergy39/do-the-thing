@@ -51,6 +51,13 @@ export default function TaskDetailScreen() {
     });
   };
 
+  const formatTime12h = (hhmm) => {
+    if (!hhmm) return 'Any time';
+    const [h, m] = hhmm.split(':').map(Number);
+    const period = h >= 12 ? 'PM' : 'AM';
+    return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${period}`;
+  };
+
   const getRecurSummary = () => {
     if (!task.recur_rule) return '—';
     try {
@@ -85,6 +92,7 @@ export default function TaskDetailScreen() {
         <DetailRow label="Type" value={task.task_type.replace('_', ' ')} />
         {task.task_type === 'deadline' && <>
           <DetailRow label="Due Date" value={task.due_date ? (parseLocalDay(task.due_date)?.toLocaleDateString() ?? '—') : '—'} />
+          <DetailRow label="Due Time" value={formatTime12h(task.due_time)} />
           <DetailRow label="Escalates at" value={task.escalate_days_out ? `${task.escalate_days_out} days out` : '—'} />
         </>}
         {task.task_type === 'recurring' && <>

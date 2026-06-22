@@ -37,3 +37,25 @@ export function parseUtcStamp(s) {
   const iso = s.replace(' ', 'T');
   return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso + 'Z');
 }
+
+/** Returns a LOCAL datetime string 'YYYY-MM-DD HH:MM:SS' (used for snooze targets). */
+export function localDateTimeStr(date = new Date()) {
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  const ss = String(date.getSeconds()).padStart(2, '0');
+  return `${localDateStr(date)} ${hh}:${mm}:${ss}`;
+}
+
+/**
+ * Parses a LOCAL datetime string ('YYYY-MM-DD HH:MM:SS', or date-only) into a Date in
+ * local time — the inverse of localDateTimeStr. Unlike parseUtcStamp, the stored value
+ * is already local wall-clock, so no offset is applied.
+ */
+export function parseLocalDateTime(s) {
+  if (!s) return null;
+  const [datePart, timePart = '00:00:00'] = s.trim().split(/[ T]/);
+  const [y, m, d] = datePart.split('-').map(Number);
+  const [h = 0, mi = 0, se = 0] = timePart.split(':').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d, h, mi, se);
+}
