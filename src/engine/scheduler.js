@@ -5,7 +5,7 @@
 
 import { getAllTasks, getLastCompletion, updateTask, getTodayCompletedTasks } from '../db/tasks';
 import { getTodayHabitCheckin, getHabitStreak } from '../db/habits';
-import { localDateStr } from '../utils/date';
+import { localDateStr, localDateTimeStr, parseLocalDateTime } from '../utils/date';
 
 const TODAY = () => {
   const d = new Date();
@@ -135,6 +135,43 @@ function parseRule(raw) {
   try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return {}; }
 }
 
+// The next date (after `today`, at local midnight) on which a recurring task is
+// due. Used by skipTask to hide a skipped occurrence until the next one.
+function computeNextRecurrence(task, today) {
+  const rule = parseRule(task.recur_rule);
+  if (rule.type === 'daily') {
+    const d = new Date(today); d.setDate(d.getDate() + 1); return d;
+  }
+  if (rule.type === 'weekly') {
+    const days = rule.days || [];
+    for (let i = 1; i <= 7; i++) {
+      const d = new Date(today); d.setDate(d.getDate() + i);
+      if (days.includes(d.getDay())) return d;
+    }
+    return null;
+  }
+  if (rule.type === 'monthly') {
+    const doms = rule.days || [];
+    for (let i = 1; i <= 62; i++) {
+      const d = new Date(today); d.setDate(d.getDate() + i);
+      if (doms.includes(d.getDate())) return d;
+    }
+    return null;
+  }
+  if (rule.type === 'interval') {
+    const start = toDate(rule.start_date);
+    const interval = rule.interval ?? 7;
+    if (!start) { const d = new Date(today); d.setDate(d.getDate() + interval); return d; }
+    for (let i = 1; i <= interval * 2; i++) {
+      const d = new Date(today); d.setDate(d.getDate() + i);
+      const diff = daysBetween(start, d);
+      if (diff >= 0 && diff % interval === 0) return d;
+    }
+    return null;
+  }
+  return null;
+}
+
 function wasCompletedToday(lastCompletion, today) {
   if (!lastCompletion) return false;
   // completed_at is stored as UTC ('YYYY-MM-DD HH:MM:SS'). Parse it as UTC
@@ -239,6 +276,16 @@ export function buildDailyList() {
       continue;
     }
 
+    // ── Snoozed: hidden from Today until the snooze moment ────────────────
+    // Applies to every actionable type (manual snooze + follow-up reminders).
+    // Still visible in All Tasks. Stored as a local datetime so "Later today"
+    // works; a deadline's snooze is capped at its due date elsewhere so an
+    // overdue task can never stay hidden.
+    if (task.snooze_until) {
+      const until = parseLocalDateTime(task.snooze_until);
+      if (until && until.getTime() > Date.now()) continue;
+    }
+
     const completedToday = wasCompletedToday(last, today);
     if (completedToday) continue;
 
@@ -251,10 +298,8 @@ export function buildDailyList() {
     // ── Unscheduled ───────────────────────────────────────────────────────
     // One-time to-dos: hide permanently once completed (any completion, not
     // just today's). wasCompletedToday already handled today's case above.
-    // snooze_until is used for follow-up tasks — hide until the target date.
     if (task.task_type === 'unscheduled') {
-      const snoozedUntil = task.snooze_until ? toDate(task.snooze_until) : null;
-      if (!last && (!snoozedUntil || snoozedUntil <= today)) include = true;
+      if (!last) include = true;
     }
 
     // ── Deadline ──────────────────────────────────────────────────────────
@@ -421,6 +466,29 @@ export function getTomorrowCritical() {
     }
   }
   return items;
+}
+
+// Skip the current occurrence of a cyclic task (recurring or randomized).
+//   recurring  → hide until the next scheduled occurrence + count a skip
+//                (feeds the existing auto-hide-after-N-skips machinery)
+//   randomized → roll the next due date forward to a fresh random date
+// Returns true if the task type supports skipping, false otherwise.
+export function skipTask(task) {
+  if (task.task_type === 'recurring') {
+    const today = TODAY();
+    const next = computeNextRecurrence(task, today);
+    updateTask(task.id, {
+      snooze_until: next ? localDateTimeStr(next) : localDateTimeStr(new Date(today.getTime() + 86400000)),
+      skip_count: (task.skip_count ?? 0) + 1,
+      last_skip_date: localDateStr(today),
+    });
+    return true;
+  }
+  if (task.task_type === 'randomized') {
+    updateTask(task.id, { rand_next_date: advanceRandomizedTask(task) });
+    return true;
+  }
+  return false;
 }
 
 export function advanceRandomizedTask(task) {

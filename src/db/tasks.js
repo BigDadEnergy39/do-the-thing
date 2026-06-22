@@ -105,6 +105,12 @@ export function archiveTask(id) {
   );
 }
 
+// Hide a task from Today until `untilLocalDateTime` (a local 'YYYY-MM-DD HH:MM:SS'
+// string). The scheduler's snooze gate parses it as local. Pass null to un-snooze.
+export function snoozeTask(id, untilLocalDateTime) {
+  updateTask(id, { snooze_until: untilLocalDateTime ?? null });
+}
+
 export function recordCompletion(taskId, scheduledFor = null, secondsLogged = 0) {
   const db = getDb();
   db.runSync(
@@ -113,6 +119,17 @@ export function recordCompletion(taskId, scheduledFor = null, secondsLogged = 0)
   );
   // Reset skip count on completion
   db.runSync(`UPDATE tasks SET skip_count = 0, last_skip_date = NULL WHERE id = ?`, [taskId]);
+  // Randomized tasks: roll the next due date forward so the task doesn't re-appear immediately
+  const task = db.getFirstSync(`SELECT task_type, rand_min_days, rand_max_days FROM tasks WHERE id = ?`, [taskId]);
+  if (task?.task_type === 'randomized') {
+    const min = task.rand_min_days ?? 7;
+    const max = task.rand_max_days ?? 14;
+    const days = min + Math.floor(Math.random() * (max - min + 1));
+    const next = new Date();
+    next.setDate(next.getDate() + days);
+    const nextStr = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
+    db.runSync(`UPDATE tasks SET rand_next_date = ? WHERE id = ?`, [nextStr, taskId]);
+  }
 }
 
 export function undoCompletion(taskId) {

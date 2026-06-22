@@ -14,7 +14,8 @@ import { COLORS } from '../src/components/theme';
 import { getSetting } from '../src/db/settings';
 import { getCoachText } from '../src/components/CoachText';
 import { CoachCard } from '../src/components/CoachCard';
-import { createTask, toSqliteDatetime, undoCompletion } from '../src/db/tasks';
+import { createTask, undoCompletion } from '../src/db/tasks';
+import { localDateTimeStr } from '../src/utils/date';
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -67,7 +68,7 @@ export default function TodayScreen() {
         task_type: 'unscheduled',
         base_priority: followUpTask.base_priority,
         priority_ceiling: followUpTask.base_priority,
-        snooze_until: toSqliteDatetime(target),
+        snooze_until: localDateTimeStr(target),
         due_date: null, due_time: null,
         escalate_days_out: null, escalate_to_priority: null,
         recur_rule: null, recur_persistent: 0, recur_display_overdue: 0,
@@ -137,6 +138,7 @@ export default function TodayScreen() {
                 task={item}
                 onComplete={handleComplete}
                 onFollowUp={handleFollowUp}
+                onChanged={refresh}
                 onPress={(t) => router.push(`/task/${t.id}`)}
               />
             : <TaskCard
@@ -144,6 +146,7 @@ export default function TodayScreen() {
                 task={item}
                 onComplete={handleComplete}
                 onFollowUp={handleFollowUp}
+                onChanged={refresh}
                 onPress={(t) => router.push(`/task/${t.id}`)}
               />
         ))}
@@ -204,6 +207,7 @@ export default function TodayScreen() {
                     task={item}
                     onComplete={handleComplete}
                     onFollowUp={handleFollowUp}
+                    onChanged={refresh}
                     onPress={(t) => router.push(`/task/${t.id}`)}
                   />
                 : <TaskCard
@@ -211,6 +215,7 @@ export default function TodayScreen() {
                     task={item}
                     onComplete={handleComplete}
                     onFollowUp={handleFollowUp}
+                    onChanged={refresh}
                     onPress={(t) => router.push(`/task/${t.id}`)}
                   />
             ))}

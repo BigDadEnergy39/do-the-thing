@@ -7,6 +7,7 @@ import {
   getActiveTimedSession, getTodayTimedSeconds,
 } from '../db/tasks';
 import { cancelAllForTask, fireCompletionAck } from '../notifications/notificationService';
+import { TaskActionsMenu } from './TaskActionsMenu';
 import { COLORS, PRIORITY_COLORS } from './theme';
 
 const PRIORITY_LABELS = { 1: 'Low', 2: 'Normal', 3: 'High', 4: 'Critical' };
@@ -22,7 +23,7 @@ const PRIORITY_CARD_TINT = {
   4: '#fff8f8', // very light red
 };
 
-export function TaskCard({ task, onComplete, onFollowUp, onPress }) {
+export function TaskCard({ task, onComplete, onFollowUp, onPress, onChanged }) {
   const [timerRunning, setTimerRunning] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [secondsToday, setSecondsToday] = useState(0);
@@ -178,6 +179,8 @@ export function TaskCard({ task, onComplete, onFollowUp, onPress }) {
           </View>
         )}
       </TouchableOpacity>
+
+      <TaskActionsMenu task={task} onChanged={onChanged} />
 
       <TouchableOpacity style={styles.checkBtn} onPress={handleComplete}>
         <View style={styles.checkCircle}>

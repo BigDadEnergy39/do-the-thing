@@ -9,6 +9,7 @@ import {
   recordCompletion,
 } from '../db/tasks';
 import { parseUtcStamp } from '../utils/date';
+import { TaskActionsMenu } from './TaskActionsMenu';
 import { COLORS } from './theme';
 
 /**
@@ -16,7 +17,7 @@ import { COLORS } from './theme';
  *   task_type === 'timed_goal'  — always visible, no checkmark, accumulates time
  *   any type with has_timer     — scheduled task with timer; checkmark marks it done
  */
-export function TimedGoalCard({ task, onComplete, onPress }) {
+export function TimedGoalCard({ task, onComplete, onPress, onChanged }) {
   const isWeekly = task.goal_reset === 'weekly';
   const hasCheckmark = task.task_type !== 'timed_goal'; // recurring+timer tasks can be marked done
 
@@ -215,6 +216,9 @@ export function TimedGoalCard({ task, onComplete, onPress }) {
 
       {/* Right-side action column */}
       <View style={styles.actionCol}>
+        {/* Snooze/Skip — only on scheduled timer tasks, not pure timed goals */}
+        {hasCheckmark && <TaskActionsMenu task={task} onChanged={onChanged} />}
+
         {/* Manual time entry — always available on timed cards */}
         <TouchableOpacity style={styles.addTimeBtn} onPress={() => setManualModalVisible(true)}>
           <Text style={styles.addTimeBtnText}>+</Text>
