@@ -81,6 +81,19 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+// ── Release signing ──────────────────────────────────────────────────────────
+// Real release keys are kept OUT of version control. Supply them via
+// android/keystore.properties (gitignored) — see keystore.properties.example.
+// If that file is absent (fresh clone, CI without secrets, or a throwaway local
+// build) we fall back to debug signing so the build still succeeds — but such an
+// APK is signed with the public Android debug key and MUST NOT be distributed.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def hasReleaseKeystore = keystorePropertiesFile.exists()
+def keystoreProperties = new Properties()
+if (hasReleaseKeystore) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
 
@@ -104,15 +117,27 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (hasReleaseKeystore) {
+            release {
+                // storeFile may be relative (to the android/ dir) or absolute.
+                storeFile rootProject.file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Use the real release key when android/keystore.properties is present;
+            // otherwise fall back to debug signing (NOT distributable — see above).
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
+            if (!hasReleaseKeystore) {
+                logger.warn("⚠️  No android/keystore.properties — RELEASE is signed with the DEBUG key. Do NOT distribute this APK. See keystore.properties.example.")
+            }
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds

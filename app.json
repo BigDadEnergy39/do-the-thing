@@ -12,6 +12,7 @@
         "backgroundColor": "#1a1a2e"
       },
       "softwareKeyboardLayoutMode": "pan",
+      "allowBackup": false,
       "permissions": [
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.SCHEDULE_EXACT_ALARM",

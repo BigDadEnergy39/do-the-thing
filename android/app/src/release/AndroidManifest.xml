@@ -1,0 +1,15 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Security: strip the INTERNET permission from RELEASE builds only.
+      The app does zero networking (no fetch/XHR anywhere); the permission is
+      pulled in transitively by expo-file-system's library manifest, which only
+      needs it for downloadAsync/uploadAsync — features this app never calls.
+      Removing it keeps the shipped/F-Droid build offline-by-construction.
+
+      This lives in the `release` source set so DEBUG/dev builds (which inherit
+      INTERNET from the main manifest) can still reach the Metro bundler.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove"/>
+</manifest>

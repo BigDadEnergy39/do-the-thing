@@ -20,6 +20,8 @@ android/local.properties
 *.p12
 *.key
 *.mobileprovision
+# Release signing credentials (the .example template is committed; the real one is not)
+android/keystore.properties
 
 # Environment variables
 .env
