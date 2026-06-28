@@ -177,6 +177,39 @@ android {
     }
 }
 
+// ── Release manifest safety guard (defence in depth) ─────────────────────────
+// The source manifests already disable allowBackup and strip INTERNET from
+// release (see src/main + src/release). But the *packaged* manifest is produced
+// by a separate build step that can go stale, or be re-widened by a future
+// dependency's manifest merge. A release built from a stale/widened packaged
+// manifest would re-grant network to this offline app and make the local SQLite
+// task DB extractable via `adb backup` — invisible if you only read source.
+// So we fail the build rather than let such an APK be sealed.
+tasks.configureEach { task ->
+    if (task.name == "processReleaseManifestForPackage") {
+        task.doLast {
+            def manifest = fileTree(dir: "${buildDir}/intermediates/packaged_manifests/release",
+                                    include: "**/AndroidManifest.xml").files.find { it.exists() }
+            if (manifest == null) {
+                throw new GradleException("Release manifest guard: packaged release manifest not found — cannot verify it is safe to ship.")
+            }
+            def text = manifest.text
+            def problems = []
+            if (text =~ /android:allowBackup\s*=\s*"true"/) problems << 'android:allowBackup="true" (local DB extractable via `adb backup`)'
+            if (text.contains("android.permission.INTERNET")) problems << 'android.permission.INTERNET (network re-granted to an offline app)'
+            if (!problems.isEmpty()) {
+                throw new GradleException(
+                    "❌ Release manifest guard FAILED — the packaged release manifest contains:\n" +
+                    problems.collect { "   • $it" }.join("\n") +
+                    "\nDo NOT distribute this APK. Run `./gradlew clean assembleRelease` to flush stale\n" +
+                    "intermediates, and check android/app/src/release/AndroidManifest.xml + app.json.\n" +
+                    "Manifest checked: ${manifest}")
+            }
+            println "✅ Release manifest guard OK — allowBackup disabled and no INTERNET permission."
+        }
+    }
+}
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
