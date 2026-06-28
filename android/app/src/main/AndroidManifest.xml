@@ -25,8 +25,7 @@
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:scheme="dothethinig"/>
-        <data android:scheme="exp+dothething"/>
+        <data android:scheme="dothething"/>
       </intent-filter>
     </activity>
   </application>
