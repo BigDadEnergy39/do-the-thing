@@ -218,6 +218,25 @@ function eveningWrapupBody(persona) {
     : coach.eveningWrapup(done, remaining);
 }
 
+// ── Morning briefing content ─────────────────────────────────────────────────
+// Live count of what's on the plate today (open items + critical titles), so the
+// scheduled briefing matches the in-app card instead of a hardcoded zero.
+function computeMorningBriefing() {
+  const { buildDailyList } = require('../engine/scheduler');
+  const { mainItems, backlogItems } = buildDailyList();
+  const allItems = [...mainItems, ...backlogItems];
+  const criticalTitles = allItems.filter(t => t.effectivePriority >= 4).map(t => t.title);
+  return { count: allItems.length, criticalTitles };
+}
+
+function morningBriefingBody(persona) {
+  const coach = getCoachText(persona);
+  const { count, criticalTitles } = computeMorningBriefing();
+  return coach.morningBody
+    ? coach.morningBody(count, criticalTitles)
+    : coach.morningBriefing(count);
+}
+
 export async function scheduleCoachingNotifications() {
   try {
     // Cancel existing coaching notifications by stable ID
@@ -241,7 +260,7 @@ export async function scheduleCoachingNotifications() {
       {
         id: IDS.MORNING,
         title: 'Do The Thing',
-        body: coach.morningBriefing(0),
+        body: morningBriefingBody(persona),
         data: { coaching: 'morning' },
         android: { channelId: 'briefing', pressAction: { id: 'default' } },
       },
@@ -527,6 +546,35 @@ export async function refreshEveningWrapup() {
   }
 }
 
+// Reschedules the morning briefing with the current task count, so it reflects
+// the real plate even when the background task doesn't fire (Android throttles
+// it). Scheduled for all personas, matching scheduleCoachingNotifications.
+export async function refreshMorningBriefing() {
+  try {
+    await notifee.cancelTriggerNotification(IDS.MORNING).catch(() => {});
+    const persona     = getSetting('coach_persona') ?? 'coach';
+    const morningTime = getSetting('morning_briefing_time') ?? '07:00';
+    const [mh, mm]    = morningTime.split(':').map(Number);
+    await notifee.createTriggerNotification(
+      {
+        id: IDS.MORNING,
+        title: 'Do The Thing',
+        body: morningBriefingBody(persona),
+        data: { coaching: 'morning' },
+        android: { channelId: 'briefing', pressAction: { id: 'default' } },
+      },
+      {
+        type: TriggerType.TIMESTAMP,
+        timestamp: nextDailyTimestamp(mh, mm),
+        repeatFrequency: RepeatFrequency.DAILY,
+        alarmManager: { allowWhileIdle: true },
+      }
+    );
+  } catch (e) {
+    console.log('refreshMorningBriefing error:', e.message);
+  }
+}
+
 // Fire morning briefing with live task data. Deduped — only fires once per calendar day.
 async function fireMorningBriefing() {
   try {
@@ -537,16 +585,7 @@ async function fireMorningBriefing() {
     const nudgeLevel = PERSONA_NUDGE_LEVEL[persona] ?? 0;
     if (nudgeLevel === 0) return;
 
-    const { buildDailyList } = require('../engine/scheduler');
-    const { mainItems, backlogItems } = buildDailyList();
-    const allItems      = [...mainItems, ...backlogItems];
-    const criticalTitles = allItems
-      .filter(t => t.effectivePriority >= 4)
-      .map(t => t.title);
-    const coach = getCoachText(persona);
-    const body  = coach.morningBody
-      ? coach.morningBody(allItems.length, criticalTitles)
-      : coach.morningBriefing(allItems.length);
+    const body = morningBriefingBody(persona);
 
     await notifee.displayNotification({
       id: IDS.MORNING,
