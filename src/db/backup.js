@@ -17,6 +17,17 @@ const BACKUP_DIR = `${FileSystem.documentDirectory}backups/`;
 const MAX_AUTO_BACKUPS = 7;
 const BACKUP_VERSION = 1;
 
+// Cap the input before reading it into memory, so a hostile/huge file can't OOM
+// the app during JSON.parse. 50 MB is generous for a personal task database.
+const MAX_BACKUP_BYTES = 50 * 1024 * 1024;
+// Tables restore may touch — also gates the table name interpolated into SQL
+// (defence in depth; call sites are already hardcoded).
+const RESTORE_TABLES = new Set(['categories', 'tasks', 'completions', 'timed_sessions', 'habit_checkins', 'settings']);
+// A column name must look like a plain SQL identifier before it is interpolated.
+const SAFE_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// Table keys as they appear in a backup's `data` object (camelCase), for validation.
+const DATA_KEYS = ['categories', 'tasks', 'completions', 'timedSessions', 'habitCheckins', 'settings'];
+
 // ─── Core serialise / deserialise ────────────────────────────────────────────
 
 export function exportBackup() {
@@ -47,10 +58,19 @@ function getTableColumns(db, table) {
 // columns in this build but absent from the backup fall back to their schema
 // default. This is what keeps a backup forward- and backward-compatible.
 function restoreRows(db, table, rows) {
+  // Gate the interpolated table name against a fixed allowlist (call sites are
+  // already hardcoded; this makes the guarantee explicit and local).
+  if (!RESTORE_TABLES.has(table)) throw new Error(`Refusing to restore unknown table: ${table}`);
   if (!rows?.length) return;
   const columns = new Set(getTableColumns(db, table));
   for (const row of rows) {
-    const keys = Object.keys(row).filter(k => columns.has(k));
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+    // Defence in depth: a key must be a real column AND a syntactically valid
+    // identifier before it is interpolated into SQL. The columns.has() check
+    // alone already neutralises injection (an injected key isn't a real column),
+    // but the SAFE_IDENT check makes that explicit so it survives any future
+    // change to the column filter. Values stay parameterised.
+    const keys = Object.keys(row).filter(k => columns.has(k) && SAFE_IDENT.test(k));
     if (!keys.length) continue;
     const placeholders = keys.map(() => '?').join(',');
     db.runSync(
@@ -60,9 +80,31 @@ function restoreRows(db, table, rows) {
   }
 }
 
+// Validate the shape of a parsed backup BEFORE we touch the database. Throws a
+// user-facing Error on anything malformed, so a corrupt or hostile file is
+// rejected before the destructive wipe — rather than wiping, then failing to
+// restore and leaving the user with nothing.
+function validateBackup(parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Invalid backup file — not a backup object.');
+  }
+  if (typeof parsed.version !== 'number' || parsed.version > BACKUP_VERSION) {
+    throw new Error(`Unsupported backup version (${parsed.version ?? 'none'}). This app reads version ${BACKUP_VERSION} or older.`);
+  }
+  if (!parsed.data || typeof parsed.data !== 'object' || Array.isArray(parsed.data)) {
+    throw new Error('Invalid backup file — missing data section.');
+  }
+  for (const key of DATA_KEYS) {
+    const v = parsed.data[key];
+    if (v != null && !Array.isArray(v)) {
+      throw new Error(`Invalid backup file — "${key}" must be a list.`);
+    }
+  }
+}
+
 export function importBackup(jsonString) {
   const parsed = JSON.parse(jsonString);
-  if (!parsed?.data) throw new Error('Invalid backup file — missing data section.');
+  validateBackup(parsed);
 
   const { categories, tasks, completions, timedSessions, habitCheckins, settings } = parsed.data;
   const db = getDb();
@@ -134,6 +176,18 @@ export async function shareBackup() {
   });
 }
 
+// Snapshot current data to a recoverable file before a destructive restore, so a
+// valid-but-unwanted import isn't an irreversible mistake. Best-effort.
+async function savePreImportSnapshot() {
+  await ensureBackupDir();
+  const json = exportBackup();
+  const now = new Date();
+  const stamp = `${localDateStr(now)}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
+  const path = `${BACKUP_DIR}dtt-preimport-${stamp}.json`;
+  await FileSystem.writeAsStringAsync(path, json, { encoding: FileSystem.EncodingType.UTF8 });
+  return path;
+}
+
 /** Opens a file picker, reads the chosen backup, and restores it. */
 export async function pickAndImportBackup() {
   const result = await DocumentPicker.getDocumentAsync({
@@ -143,8 +197,23 @@ export async function pickAndImportBackup() {
 
   if (result.canceled || !result.assets?.length) return { success: false, reason: 'cancelled' };
 
-  const uri = result.assets[0].uri;
-  const json = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.UTF8 });
+  const asset = result.assets[0];
+  // Bound the file before reading it into memory (OOM defence). Prefer the size
+  // the picker reports; fall back to a stat if it didn't.
+  let size = asset.size ?? null;
+  if (size == null) {
+    try { size = (await FileSystem.getInfoAsync(asset.uri, { size: true })).size ?? null; } catch { /* unknown */ }
+  }
+  if (size != null && size > MAX_BACKUP_BYTES) {
+    throw new Error(`Backup file is too large (${Math.round(size / 1048576)} MB; limit ${Math.round(MAX_BACKUP_BYTES / 1048576)} MB).`);
+  }
+
+  const json = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
+
+  // Snapshot current data before the destructive restore so a bad (but parseable)
+  // import can be undone. Best-effort — never blocks the import.
+  await savePreImportSnapshot().catch(() => {});
+
   importBackup(json);
   return { success: true };
 }
