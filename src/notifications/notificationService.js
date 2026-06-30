@@ -273,37 +273,10 @@ export async function scheduleCoachingNotifications() {
     );
 
     // ── Mid-day check-ins (coach / hype only) ────────────────────────────────
-    if (nudgeLevel >= 2) {
-      const summaryTime1 = getSetting('summary_time_1') ?? '12:00';
-      const summaryTime2 = getSetting('summary_time_2') ?? '17:00';
-      const summarySlots = [
-        { id: IDS.MIDDAY_1, time: summaryTime1 },
-        { id: IDS.MIDDAY_2, time: summaryTime2 },
-      ].slice(0, nudgeLevel >= 3 ? config.summaryCount : 1);
-
-      for (const { id, time } of summarySlots) {
-        const [h, m] = time.split(':').map(Number);
-        await notifee.createTriggerNotification(
-          {
-            id,
-            title: 'Do The Thing',
-            body: coach.nudge(0),
-            data: { coaching: 'midday' },
-            android: {
-              channelId: 'nudge',
-              actions: TASK_ACTIONS,
-              pressAction: { id: 'default' },
-            },
-          },
-          {
-            type: TriggerType.TIMESTAMP,
-            timestamp: nextDailyTimestamp(h, m),
-            repeatFrequency: RepeatFrequency.DAILY,
-            alarmManager: { allowWhileIdle: true },
-          }
-        );
-      }
-    }
+    // Delegated to refreshMidayNudges (single source of truth) so they carry the
+    // live task count instead of a hardcoded zero, and the persona gate / slot
+    // count live in one place. Refreshed again as the app is used.
+    await refreshMidayNudges();
 
     // ── Evening wrap-up ───────────────────────────────────────────────────────
     // Background task fires the real content-rich version. This is the fallback.
@@ -460,6 +433,12 @@ async function rescheduleMidayNudges(taskCount, criticalTasks = []) {
     const persona   = getSetting('coach_persona') ?? 'coach';
     const coach     = getCoachText(persona);
     const config    = INTENSITY_CONFIG[intensity] ?? INTENSITY_CONFIG[3];
+    const nudgeLevel = PERSONA_NUDGE_LEVEL[persona] ?? 0;
+
+    // Mid-day check-ins are coach/hype only: hype gets up to summaryCount, coach gets one,
+    // quieter personas get none. (Both IDs are already cancelled above.)
+    const slotCount = nudgeLevel >= 3 ? config.summaryCount : (nudgeLevel >= 2 ? 1 : 0);
+    if (slotCount === 0) return;
 
     let body = coach.nudge(taskCount);
     if (criticalTasks.length > 0) {
@@ -476,7 +455,7 @@ async function rescheduleMidayNudges(taskCount, criticalTasks = []) {
     const summarySlots = [
       { id: IDS.MIDDAY_1, time: summaryTime1 },
       { id: IDS.MIDDAY_2, time: summaryTime2 },
-    ].slice(0, config.summaryCount);
+    ].slice(0, slotCount);
 
     for (const { id, time } of summarySlots) {
       const [h, m] = time.split(':').map(Number);
