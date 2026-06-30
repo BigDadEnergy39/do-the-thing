@@ -6,6 +6,13 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { initDb } from '../src/db/schema';
 import notifee, { EventType } from '@notifee/react-native';
 
+// Anchor the stack at Home so a deep link (or notification) into a sub-route
+// like /review always has Home beneath it — otherwise a cold-start deep link
+// makes that route the only screen and there's no back button / way out.
+export const unstable_settings = {
+  initialRouteName: 'index',
+};
+
 // Separated into its own component so useRouter runs inside the navigation tree
 function SettingsButton() {
   const router = useRouter();
