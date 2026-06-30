@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { AppState } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { buildDailyList } from '../engine/scheduler';
-import { refreshEveningWrapup, refreshMorningBriefing } from '../notifications/notificationService';
+import { refreshEveningWrapup, refreshMorningBriefing, refreshMidayNudges } from '../notifications/notificationService';
 
 export function useDailyList() {
   const [mainItems, setMainItems] = useState([]);
@@ -24,9 +24,11 @@ export function useDailyList() {
     } finally {
       setLoading(false);
     }
-    // Keep the morning briefing and bedtime wrap-up counts in sync with the
-    // current list, so neither fires stale numbers (e.g. "0 tasks" / "0 done").
+    // Keep all live-count coaching notifications (morning briefing, mid-day
+    // check-ins, bedtime wrap-up) in sync with the current list, so none fire
+    // stale numbers (e.g. "0 tasks" / "0 done").
     refreshMorningBriefing().catch(() => {});
+    refreshMidayNudges().catch(() => {});
     refreshEveningWrapup().catch(() => {});
   }, []);
 
