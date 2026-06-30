@@ -40,3 +40,6 @@ yarn-error.log*
 
 # Design source files — high-res master art (icons are exported into assets/, not bundled)
 design/
+
+# Local backup exports pulled from devices — personal data, never commit
+Backups/
