@@ -249,6 +249,16 @@ export function getCoachText(persona = 'coach') {
   return PERSONAS[persona] ?? PERSONAS.coach;
 }
 
+// The completion-acknowledgement line for a persona/task, or null when this
+// persona/priority shouldn't get one (Coach: High/Critical; Hype: everything;
+// the quieter personas: never). Used to show an in-app toast on completion.
+export function completionAckMessage(persona, task) {
+  const threshold = COMPLETION_ACK_THRESHOLD[persona] ?? Infinity;
+  const priority = task.base_priority ?? task.effectivePriority ?? 2;
+  if (priority < threshold) return null;
+  return getCoachText(persona).completionAck(task.title, priority) || null;
+}
+
 export const PERSONA_OPTIONS = [
   {
     key: 'just_facts',

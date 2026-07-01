@@ -6,7 +6,10 @@ import {
   recordCompletion, startTimedSession, endTimedSession,
   getActiveTimedSession, getTodayTimedSeconds,
 } from '../db/tasks';
-import { cancelAllForTask, fireCompletionAck } from '../notifications/notificationService';
+import { cancelAllForTask } from '../notifications/notificationService';
+import { getSetting } from '../db/settings';
+import { completionAckMessage } from './CoachText';
+import { useToast } from './Toast';
 import { TaskActionsMenu } from './TaskActionsMenu';
 import { COLORS, PRIORITY_COLORS } from './theme';
 
@@ -30,6 +33,14 @@ export function TaskCard({ task, onComplete, onFollowUp, onPress, onChanged }) {
   const [elapsedSecs, setElapsedSecs] = useState(0);
   const intervalRef = useRef(null);
   const fadeAnim = useRef(new Animated.Value(1)).current;
+  const showToast = useToast();
+
+  // In-app completion acknowledgement (Coach/Hype only) — a toast, not a
+  // system notification, since you're already in the app checking things off.
+  const showCompletionToast = () => {
+    const msg = completionAckMessage(getSetting('coach_persona') ?? 'coach', task);
+    if (msg) showToast(msg);
+  };
 
   useEffect(() => {
     if (task.task_type === 'timed_goal') {
@@ -80,7 +91,7 @@ export function TaskCard({ task, onComplete, onFollowUp, onPress, onChanged }) {
         }).start(() => {
           recordCompletion(task.id, task.due_date ?? null, secondsToday);
           cancelAllForTask(task.id).catch(() => {});
-          fireCompletionAck(task).catch(() => {});
+          showCompletionToast();
           onComplete?.(task.id);
         });
       });
@@ -93,7 +104,7 @@ export function TaskCard({ task, onComplete, onFollowUp, onPress, onChanged }) {
     }).start(() => {
       recordCompletion(task.id, task.due_date ?? null, secondsToday);
       cancelAllForTask(task.id).catch(() => {});
-      fireCompletionAck(task).catch(() => {});
+      showCompletionToast();
       onComplete?.(task.id);
     });
   };

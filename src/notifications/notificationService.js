@@ -364,23 +364,11 @@ export async function snoozeNotification(taskId, title, snoozeMinutes = 15) {
   });
 }
 
-// Fire an immediate in-app acknowledgment when a task is completed.
-// Only fires for coach/hype personas, gated by task priority threshold.
-export async function fireCompletionAck(task) {
-  try {
-    const persona = getSetting('coach_persona') ?? 'coach';
-    const threshold = COMPLETION_ACK_THRESHOLD[persona] ?? Infinity;
-    if ((task.base_priority ?? task.effectivePriority ?? 2) < threshold) return;
-    const coach = getCoachText(persona);
-    const body = coach.completionAck(task.title, task.base_priority ?? task.effectivePriority ?? 2);
-    if (!body) return;
-    await notifee.displayNotification({
-      title: 'Do The Thing',
-      body,
-      android: { channelId: 'completion_ack', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
-    });
-  } catch { /* unavailable */ }
-}
+// Completion acknowledgements are now shown as an in-app toast (see
+// completionAckMessage + the Toast component), not a system notification — you're
+// already in the app when checking things off, so a notification you'd have to
+// clear was just extra work. The 'completion_ack' channel is retained (harmless)
+// in case a future notification-based ack is wanted.
 
 // Check for habits not completed today and fire nudges for coach/hype personas.
 // daysMissedMap: { [taskId]: daysMissed } — computed by caller from DB.

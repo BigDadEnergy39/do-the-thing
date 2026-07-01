@@ -9,6 +9,9 @@ import {
   recordCompletion,
 } from '../db/tasks';
 import { parseUtcStamp } from '../utils/date';
+import { getSetting } from '../db/settings';
+import { completionAckMessage } from './CoachText';
+import { useToast } from './Toast';
 import { TaskActionsMenu } from './TaskActionsMenu';
 import { COLORS } from './theme';
 
@@ -30,6 +33,12 @@ export function TimedGoalCard({ task, onComplete, onPress, onChanged }) {
   const [manualSeconds, setManualSeconds] = useState('');
   const intervalRef = useRef(null);
   const fadeAnim = useRef(new Animated.Value(1)).current;
+  const showToast = useToast();
+
+  const showCompletionToast = () => {
+    const msg = completionAckMessage(getSetting('coach_persona') ?? 'coach', task);
+    if (msg) showToast(msg);
+  };
 
   useEffect(() => {
     // Reset animation in case a Fast Refresh cycle left it at 0
@@ -129,6 +138,7 @@ export function TimedGoalCard({ task, onComplete, onPress, onChanged }) {
       toValue: 0, duration: 300, useNativeDriver: true,
     }).start(() => {
       recordCompletion(task.id, task.due_date ?? null, finalSecs);
+      showCompletionToast();
       onComplete?.(task.id);
     });
   };

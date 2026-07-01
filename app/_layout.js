@@ -3,6 +3,7 @@ import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { TouchableOpacity, Text, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { ToastProvider } from '../src/components/Toast';
 import { initDb } from '../src/db/schema';
 import notifee, { EventType } from '@notifee/react-native';
 
@@ -158,30 +159,32 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style="dark" />
-      <Stack
-        screenOptions={{
-          headerStyle: { backgroundColor: '#f4f6fb' },
-          headerTintColor: '#1a1a2e',
-          headerTitleStyle: { fontWeight: '700' },
-          headerShadowVisible: false,
-          contentStyle: { backgroundColor: '#f4f6fb' },
-        }}
-      >
-        <Stack.Screen
-          name="index"
-          options={{
-            title: 'Do The Thing',
-            headerRight: () => <SettingsButton />,
+      <ToastProvider>
+        <StatusBar style="dark" />
+        <Stack
+          screenOptions={{
+            headerStyle: { backgroundColor: '#f4f6fb' },
+            headerTintColor: '#1a1a2e',
+            headerTitleStyle: { fontWeight: '700' },
+            headerShadowVisible: false,
+            contentStyle: { backgroundColor: '#f4f6fb' },
           }}
-        />
-        <Stack.Screen name="add" options={{ title: 'New Task', presentation: 'modal' }} />
-        <Stack.Screen name="task/[id]" options={{ title: 'Task Details' }} />
-        <Stack.Screen name="settings" options={{ title: 'Settings' }} />
-        <Stack.Screen name="review" options={{ title: "Today's Wrap-Up" }} />
-        <Stack.Screen name="all-tasks" options={{ title: 'All Tasks' }} />
-      </Stack>
-      <NotificationHandler />
+        >
+          <Stack.Screen
+            name="index"
+            options={{
+              title: 'Do The Thing',
+              headerRight: () => <SettingsButton />,
+            }}
+          />
+          <Stack.Screen name="add" options={{ title: 'New Task', presentation: 'modal' }} />
+          <Stack.Screen name="task/[id]" options={{ title: 'Task Details' }} />
+          <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+          <Stack.Screen name="review" options={{ title: "Today's Wrap-Up" }} />
+          <Stack.Screen name="all-tasks" options={{ title: 'All Tasks' }} />
+        </Stack>
+        <NotificationHandler />
+      </ToastProvider>
     </SafeAreaProvider>
   );
 }
