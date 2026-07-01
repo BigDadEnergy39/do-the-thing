@@ -63,7 +63,7 @@ export default function SettingsScreen() {
           title: 'Do The Thing — Test',
           body: 'Notifications are working! Tap to go to your list.',
           data: { coaching: 'morning' },
-          android: { channelId: 'briefing', pressAction: { id: 'default' } },
+          android: { channelId: 'briefing', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
         },
         {
           type: TriggerType.TIMESTAMP,
