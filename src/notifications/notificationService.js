@@ -64,58 +64,35 @@ export async function requestPermissions() {
   } catch { return false; }
 }
 
+// Create every channel independently. Previously all eight shared one try/catch,
+// so a single bad channel config threw and left the app with ZERO channels —
+// and then every notification was silently dropped ("No Channel found"). Now a
+// failure is isolated to its own channel and logged. Configs are kept to widely
+// supported properties (id/name/importance + vibration) — the earlier lightColor
+// and sound:'default' properties were the likely culprits for the throw.
+// NOTE: no `vibration`/`vibrationPattern` here — that property throws in
+// notifee's createChannel on this Android 16 build (confirmed: the three channels
+// that had it were the exact three that failed to create). HIGH/MAX importance
+// channels vibrate by default, so the buzz is preserved without the bad property.
+const NOTIFICATION_CHANNELS = [
+  { id: 'briefing',          name: 'Daily Briefing',             importance: AndroidImportance.HIGH },
+  { id: 'nudge',             name: 'Task Nudges',                importance: AndroidImportance.DEFAULT },
+  { id: 'summary',           name: 'Daily Summary',              importance: AndroidImportance.DEFAULT },
+  { id: 'review',            name: 'Weekly Review',              importance: AndroidImportance.HIGH },
+  { id: 'completion_ack',    name: 'Completion Acknowledgments', importance: AndroidImportance.DEFAULT },
+  { id: 'habit_nudge',       name: 'Habit Nudges',               importance: AndroidImportance.DEFAULT },
+  { id: 'deadline_reminder', name: 'Deadline Reminders',         importance: AndroidImportance.HIGH },
+  { id: 'deadline_critical', name: 'Critical Overdue Alerts',    importance: AndroidImportance.MAX },
+];
+
 export async function createNotificationChannels() {
-  try {
-    await notifee.createChannel({
-      id: 'briefing',
-      name: 'Daily Briefing',
-      importance: AndroidImportance.HIGH,
-      vibration: true,
-      vibrationPattern: [0, 250, 250, 250],
-      lights: true,
-      lightColor: '#4a90d9',
-    });
-    await notifee.createChannel({
-      id: 'nudge',
-      name: 'Task Nudges',
-      importance: AndroidImportance.DEFAULT,
-    });
-    await notifee.createChannel({
-      id: 'summary',
-      name: 'Daily Summary',
-      importance: AndroidImportance.DEFAULT,
-    });
-    await notifee.createChannel({
-      id: 'review',
-      name: 'Weekly Review',
-      importance: AndroidImportance.HIGH,
-    });
-    await notifee.createChannel({
-      id: 'completion_ack',
-      name: 'Completion Acknowledgments',
-      importance: AndroidImportance.DEFAULT,
-    });
-    await notifee.createChannel({
-      id: 'habit_nudge',
-      name: 'Habit Nudges',
-      importance: AndroidImportance.DEFAULT,
-    });
-    await notifee.createChannel({
-      id: 'deadline_reminder',
-      name: 'Deadline Reminders',
-      importance: AndroidImportance.HIGH,
-      vibration: true,
-      vibrationPattern: [0, 300, 200, 300],
-    });
-    await notifee.createChannel({
-      id: 'deadline_critical',
-      name: 'Critical Overdue Alerts',
-      importance: AndroidImportance.MAX,
-      vibration: true,
-      vibrationPattern: [0, 500, 200, 500, 200, 500],
-      sound: 'default',
-    });
-  } catch { /* unavailable */ }
+  for (const channel of NOTIFICATION_CHANNELS) {
+    try {
+      await notifee.createChannel(channel);
+    } catch (e) {
+      console.log('createChannel failed:', channel.id, e?.message);
+    }
+  }
 }
 
 // No-op: notifee shows foreground notifications by default
@@ -168,7 +145,7 @@ export async function scheduleDeadlineReminders(task) {
           title: 'Do The Thing',
           body: coach.taskDueReminder(task.title, Math.round(offsetMs / 60000)),
           data: { taskId: String(task.id) },
-          android: { channelId: 'deadline_reminder', pressAction: { id: 'default' } },
+          android: { channelId: 'deadline_reminder', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
         },
         { type: TriggerType.TIMESTAMP, timestamp: triggerMs, alarmManager: { allowWhileIdle: true } }
       );
@@ -187,7 +164,7 @@ export async function scheduleDeadlineReminders(task) {
             title: '⚠️ Do The Thing',
             body: coach.taskCriticalOverdue(task.title),
             data: { taskId: String(task.id) },
-            android: { channelId: 'deadline_critical', actions: CRITICAL_OVERDUE_ACTIONS, pressAction: { id: 'default' } },
+            android: { channelId: 'deadline_critical', actions: CRITICAL_OVERDUE_ACTIONS, pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
           },
           { type: TriggerType.TIMESTAMP, timestamp: triggerMs, alarmManager: { allowWhileIdle: true } }
         );
@@ -262,7 +239,7 @@ export async function scheduleCoachingNotifications() {
         title: 'Do The Thing',
         body: morningBriefingBody(persona),
         data: { coaching: 'morning' },
-        android: { channelId: 'briefing', pressAction: { id: 'default' } },
+        android: { channelId: 'briefing', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
       },
       {
         type: TriggerType.TIMESTAMP,
@@ -289,7 +266,7 @@ export async function scheduleCoachingNotifications() {
         title: 'Day Wrap-Up',
         body: eveningWrapupBody(persona),
         data: { coaching: 'evening' },
-        android: { channelId: 'summary', pressAction: { id: 'default' } },
+        android: { channelId: 'summary', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
       },
       {
         type: TriggerType.TIMESTAMP,
@@ -312,6 +289,7 @@ export async function scheduleCoachingNotifications() {
         android: {
           channelId: 'review',
           pressAction: { id: 'default' },
+          smallIcon: 'ic_notification',
         },
       },
       {
@@ -337,6 +315,7 @@ export async function scheduleTaskNotification({ taskId, title, body, triggerTim
           channelId,
           actions: TASK_ACTIONS,
           pressAction: { id: 'default' },
+          smallIcon: 'ic_notification',
         },
       },
       {
@@ -468,6 +447,7 @@ async function rescheduleMidayNudges(taskCount, criticalTasks = []) {
           android: {
             channelId: 'nudge',
             pressAction: { id: 'default' },
+            smallIcon: 'ic_notification',
           },
         },
         {
@@ -511,7 +491,7 @@ export async function refreshEveningWrapup() {
         title: 'Day Wrap-Up',
         body: eveningWrapupBody(persona),
         data: { coaching: 'evening' },
-        android: { channelId: 'summary', pressAction: { id: 'default' } },
+        android: { channelId: 'summary', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
       },
       {
         type: TriggerType.TIMESTAMP,
@@ -540,7 +520,7 @@ export async function refreshMorningBriefing() {
         title: 'Do The Thing',
         body: morningBriefingBody(persona),
         data: { coaching: 'morning' },
-        android: { channelId: 'briefing', pressAction: { id: 'default' } },
+        android: { channelId: 'briefing', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
       },
       {
         type: TriggerType.TIMESTAMP,
