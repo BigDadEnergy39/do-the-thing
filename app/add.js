@@ -9,7 +9,8 @@ import { TimePickerField } from '../src/components/TimePickerField';
 import { createTask, updateTask, getTaskById } from '../src/db/tasks';
 import { scheduleDeadlineReminders, cancelAllForTask } from '../src/notifications/notificationService';
 import { advanceRandomizedTask } from '../src/engine/scheduler';
-import { localDateStr } from '../src/utils/date';
+import { describeRule, normalizeRule, upcomingOccurrences } from '../src/engine/recurrence';
+import { localDateStr, formatShortDate } from '../src/utils/date';
 import { getAllCategories } from '../src/db/categories';
 import { COLORS, PRIORITY_COLORS, PRIORITY_LABELS } from '../src/components/theme';
 
@@ -64,9 +65,21 @@ export default function AddTaskScreen() {
   const [dueTime, setDueTime] = useState('');
   const [escalateDays, setEscalateDays] = useState('14');
   const [escalatePriority, setEscalatePriority] = useState(3);
-  const [recurType, setRecurType] = useState('weekly');
-  const [recurDays, setRecurDays] = useState([]);
-  const [recurInterval, setRecurInterval] = useState('7');
+  // Flexible recurrence builder state (see src/engine/recurrence.js for the rule shape).
+  const [recurFreq, setRecurFreq] = useState('weekly');      // 'daily' | 'weekly' | 'monthly'
+  const [recurInterval, setRecurInterval] = useState('1');   // every N days/weeks/months
+  const [recurDays, setRecurDays] = useState([]);            // weekly: weekdays 0–6
+  const [recurMonthMode, setRecurMonthMode] = useState('day'); // 'day' | 'weekday'
+  const [recurDayOfMonth, setRecurDayOfMonth] = useState('1');  // month_mode 'day'
+  const [recurNth, setRecurNth] = useState(1);               // month_mode 'weekday': 1–4 or -1
+  const [recurWeekday, setRecurWeekday] = useState(0);       // month_mode 'weekday': 0–6
+  const [recurStartDate, setRecurStartDate] = useState(localDateStr()); // cycle anchor
+  const [recurEndMode, setRecurEndMode] = useState('never'); // 'never' | 'date' | 'count'
+  const [recurEndDate, setRecurEndDate] = useState('');
+  const [recurEndCount, setRecurEndCount] = useState('10');
+  const [recurAnchor, setRecurAnchor] = useState('schedule'); // 'schedule' | 'completion'
+  const [recurEscalate, setRecurEscalate] = useState(false);  // escalate priority if overdue
+  const [recurEscalateDays, setRecurEscalateDays] = useState('3');
   const [recurPersistent, setRecurPersistent] = useState(false);
   const [autoHideAfterSkips, setAutoHideAfterSkips] = useState('');
   const [randMin, setRandMin] = useState('14');
@@ -112,6 +125,9 @@ export default function AddTaskScreen() {
       setEscalateDays(String(task.escalate_days_out ?? 14));
       setEscalatePriority(task.escalate_to_priority ?? 3);
       setRecurPersistent(!!task.recur_persistent);
+      setRecurAnchor(task.recur_anchor === 'completion' ? 'completion' : 'schedule');
+      setRecurEscalate(task.recur_escalate_days != null);
+      if (task.recur_escalate_days != null) setRecurEscalateDays(String(task.recur_escalate_days));
       setAutoHideAfterSkips(task.auto_hide_after_skips ? String(task.auto_hide_after_skips) : '');
       setRandMin(String(task.rand_min_days ?? 14));
       setRandMax(String(task.rand_max_days ?? 21));
@@ -148,12 +164,23 @@ export default function AddTaskScreen() {
         } catch {}
       }
       if (task.recur_rule) {
-        try {
-          const rule = JSON.parse(task.recur_rule);
-          setRecurType(rule.type);
-          setRecurDays(rule.days ?? []);
-          setRecurInterval(String(rule.interval ?? 7));
-        } catch {}
+        // normalizeRule upgrades legacy rule shapes to the canonical v2 form,
+        // so editing an old recurring task loads cleanly into the new builder.
+        const rule = normalizeRule(task.recur_rule);
+        if (rule) {
+          setRecurFreq(rule.freq);
+          setRecurInterval(String(rule.interval));
+          setRecurMonthMode(rule.month_mode);
+          if (rule.freq === 'weekly') setRecurDays(rule.days ?? []);
+          if (rule.day_of_month != null) setRecurDayOfMonth(String(rule.day_of_month));
+          else if (rule.freq === 'monthly' && rule.days?.length) setRecurDayOfMonth(String(rule.days[0]));
+          if (rule.nth != null) setRecurNth(rule.nth);
+          if (rule.weekday != null) setRecurWeekday(rule.weekday);
+          if (rule.start_date) setRecurStartDate(rule.start_date);
+          if (rule.end?.type === 'date') { setRecurEndMode('date'); setRecurEndDate(rule.end.date); }
+          else if (rule.end?.type === 'count') { setRecurEndMode('count'); setRecurEndCount(String(rule.end.count)); }
+          else setRecurEndMode('never');
+        }
       }
     }
   }, [editId]);
@@ -232,19 +259,87 @@ export default function AddTaskScreen() {
     setShowHolidayModal(false);
   };
 
+  // Assemble the canonical v2 recurrence rule from builder state. Used for both
+  // the live summary and Save, so the preview always matches what's stored.
+  const buildRecurRule = () => {
+    const interval = Math.max(1, Number(recurInterval) || 1);
+    const rule = { v: 2, freq: recurFreq, interval, start_date: recurStartDate || localDateStr() };
+    // Rolling ('from last completion') mode has no calendar pattern — the next
+    // due date is just interval-after-completion — so weekday/month fields are
+    // omitted. They only apply to a fixed schedule.
+    if (recurAnchor !== 'completion') {
+      if (recurFreq === 'weekly') {
+        rule.days = recurDays;
+      } else if (recurFreq === 'monthly') {
+        rule.month_mode = recurMonthMode;
+        if (recurMonthMode === 'day') rule.day_of_month = Number(recurDayOfMonth) || 1;
+        else { rule.nth = recurNth; rule.weekday = recurWeekday; }
+      }
+    }
+    if (recurEndMode === 'date' && recurEndDate) rule.end = { type: 'date', date: recurEndDate };
+    else if (recurEndMode === 'count') rule.end = { type: 'count', count: Number(recurEndCount) || 1 };
+    return rule;
+  };
+
+  // Human summary for the builder — anchor-aware, since describeRule only knows
+  // the calendar pattern, not the rolling mode.
+  const recurSummaryText = () => {
+    if (recurAnchor === 'completion') {
+      const n = Math.max(1, Number(recurInterval) || 1);
+      const unit = recurFreq === 'weekly' ? 'week' : recurFreq === 'monthly' ? 'month' : 'day';
+      let s = `Every ${n} ${unit}${n > 1 ? 's' : ''} after each completion`;
+      if (recurEndMode === 'date' && recurEndDate) s += `, until ${recurEndDate}`;
+      else if (recurEndMode === 'count') s += `, ${recurEndCount} times`;
+      return s;
+    }
+    return describeRule(buildRecurRule());
+  };
+
+  // "Next: Jul 14, Jul 28, Aug 11" for fixed schedules. Rolling tasks have no
+  // fixed future calendar (dates depend on when each is completed), so we show
+  // the first due date and note that it rolls from completion.
+  const recurPreviewText = () => {
+    if (recurAnchor === 'completion') {
+      const start = strToDate(recurStartDate) || new Date();
+      return `First due ${formatShortDate(start)}, then repeats after each completion`;
+    }
+    const dates = upcomingOccurrences(buildRecurRule(), 3);
+    if (!dates.length) return 'No upcoming dates — check the days / end condition';
+    return `Next: ${dates.map(formatShortDate).join(', ')}`;
+  };
+
   const handleSave = () => {
     if (taskType !== 'date_anchor' && !title.trim()) { Alert.alert('Missing Title', 'Please enter a task title.'); return; }
 
     let recurRule = null;
     if (taskType === 'recurring') {
-      if (recurType === 'weekly') {
-        if (!recurDays.length) { Alert.alert('Select Days', 'Choose at least one day.'); return; }
-        recurRule = JSON.stringify({ type: 'weekly', days: recurDays });
-      } else if (recurType === 'daily') {
-        recurRule = JSON.stringify({ type: 'daily' });
-      } else if (recurType === 'interval') {
-        recurRule = JSON.stringify({ type: 'interval', interval: Number(recurInterval), start_date: localDateStr() });
+      const fixedSchedule = recurAnchor !== 'completion';
+      if (fixedSchedule && recurFreq === 'weekly' && !recurDays.length) {
+        Alert.alert('Select Days', 'Choose at least one day of the week.'); return;
       }
+      if (fixedSchedule && recurFreq === 'monthly' && recurMonthMode === 'day') {
+        const dom = Number(recurDayOfMonth);
+        if (!Number.isInteger(dom) || dom < 1 || dom > 31) {
+          Alert.alert('Check the day', 'Enter a day of the month from 1 to 31.'); return;
+        }
+      }
+      if (recurEscalate) {
+        const ed = Number(recurEscalateDays);
+        if (!Number.isInteger(ed) || ed < 1) {
+          Alert.alert('Check escalation', 'Enter a whole number of days (1 or more) for how often priority steps up.'); return;
+        }
+      }
+      if (recurEndMode === 'date') {
+        if (!recurEndDate) { Alert.alert('Pick an end date', 'Choose when the repeat should stop, or set Ends to Never.'); return; }
+        if (recurEndDate < (recurStartDate || localDateStr())) {
+          Alert.alert('Check the dates', 'The end date can’t be before the start date.'); return;
+        }
+      }
+      if (recurEndMode === 'count') {
+        const c = Number(recurEndCount);
+        if (!Number.isInteger(c) || c < 1) { Alert.alert('Check the count', 'Enter how many times it should repeat (1 or more).'); return; }
+      }
+      recurRule = JSON.stringify(buildRecurRule());
     }
 
     // Validate the randomized day range before it reaches advanceRandomizedTask —
@@ -273,7 +368,10 @@ export default function AddTaskScreen() {
       category_id: categoryId,
       task_type: taskType,
       base_priority: taskType === 'habit' ? 2 : priority,
-      priority_ceiling: (taskType === 'unscheduled' || taskType === 'timed_goal') && Number(autoEscalateDays) > 0 ? priorityCeiling : 4,
+      priority_ceiling:
+        ((taskType === 'unscheduled' || taskType === 'timed_goal') && Number(autoEscalateDays) > 0)
+        || (taskType === 'recurring' && recurEscalate)
+          ? priorityCeiling : 4,
       auto_escalate_days: (taskType === 'unscheduled' || taskType === 'timed_goal') ? (Number(autoEscalateDays) || 0) : 0,
       due_date: taskType === 'deadline' ? dueDate || null : null,
       due_time: taskType === 'deadline' ? dueTime || null : null,
@@ -284,6 +382,8 @@ export default function AddTaskScreen() {
       escalate_to_priority: taskType === 'deadline' && Number(escalateDays) > 0 ? escalatePriority : null,
       recur_rule: recurRule,
       recur_persistent: recurPersistent,
+      recur_anchor: taskType === 'recurring' ? recurAnchor : null,
+      recur_escalate_days: taskType === 'recurring' && recurEscalate ? Number(recurEscalateDays) : null,
       rand_min_days: Number(randMin),
       rand_max_days: Number(randMax),
       rand_persistent: randPersistent,
@@ -486,17 +586,51 @@ export default function AddTaskScreen() {
       {/* ── Recurring ── */}
       {taskType === 'recurring' && (
         <>
-          <Text style={styles.label}>Repeat Type</Text>
+          <Text style={styles.label}>Repeat</Text>
           <View style={styles.segmentRow}>
-            {['daily','weekly','interval'].map(t => (
-              <TouchableOpacity key={t} style={[styles.segBtn, recurType === t && styles.segBtnActive]} onPress={() => setRecurType(t)}>
-                <Text style={[styles.segText, recurType === t && styles.segTextActive]}>{t.charAt(0).toUpperCase() + t.slice(1)}</Text>
+            {['daily','weekly','monthly'].map(f => (
+              <TouchableOpacity key={f} style={[styles.segBtn, recurFreq === f && styles.segBtnActive]} onPress={() => setRecurFreq(f)}>
+                <Text style={[styles.segText, recurFreq === f && styles.segTextActive]}>{f.charAt(0).toUpperCase() + f.slice(1)}</Text>
               </TouchableOpacity>
             ))}
           </View>
-          {recurType === 'weekly' && (
+
+          <Text style={styles.label}>Schedule anchor</Text>
+          <View style={styles.segmentRow}>
+            {[{ key: 'schedule', label: 'Fixed schedule' }, { key: 'completion', label: 'From last done' }].map(opt => (
+              <TouchableOpacity
+                key={opt.key}
+                style={[styles.segBtn, recurAnchor === opt.key && styles.segBtnActive]}
+                onPress={() => setRecurAnchor(opt.key)}
+              >
+                <Text style={[styles.segText, recurAnchor === opt.key && styles.segTextActive]}>{opt.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={styles.sublabel}>
+            {recurAnchor === 'completion'
+              ? 'Next due date is counted from when you last completed it (e.g. feed the snake 7 days after the last feeding).'
+              : 'Repeats on fixed calendar days, whether or not you did the last one.'}
+          </Text>
+
+          <Text style={styles.label}>Every</Text>
+          <View style={styles.intervalRow}>
+            <TextInput
+              style={[styles.input, styles.intervalInput]}
+              value={recurInterval}
+              onChangeText={setRecurInterval}
+              keyboardType="numeric"
+              placeholder="1"
+              placeholderTextColor="#aaa"
+            />
+            <Text style={styles.intervalUnit}>
+              {recurFreq === 'daily' ? 'day(s)' : recurFreq === 'weekly' ? 'week(s)' : 'month(s)'}
+            </Text>
+          </View>
+
+          {recurAnchor === 'schedule' && recurFreq === 'weekly' && (
             <>
-              <Text style={styles.label}>Days of Week</Text>
+              <Text style={styles.label}>On these days</Text>
               <View style={styles.dowRow}>
                 {DOW_LABELS.map((d, i) => (
                   <TouchableOpacity key={i} style={[styles.dowBtn, recurDays.includes(i) && styles.dowBtnActive]} onPress={() => toggleRecurDay(i)}>
@@ -506,18 +640,137 @@ export default function AddTaskScreen() {
               </View>
             </>
           )}
-          {recurType === 'interval' && (
+
+          {recurAnchor === 'schedule' && recurFreq === 'monthly' && (
             <>
-              <Text style={styles.label}>Every N days</Text>
-              <TextInput style={styles.input} value={recurInterval} onChangeText={setRecurInterval} keyboardType="numeric" placeholder="7" placeholderTextColor="#aaa" />
+              <Text style={styles.label}>On</Text>
+              <View style={styles.segmentRow}>
+                {[{ key: 'day', label: 'Day of month' }, { key: 'weekday', label: 'A weekday' }].map(opt => (
+                  <TouchableOpacity
+                    key={opt.key}
+                    style={[styles.segBtn, recurMonthMode === opt.key && styles.segBtnActive]}
+                    onPress={() => setRecurMonthMode(opt.key)}
+                  >
+                    <Text style={[styles.segText, recurMonthMode === opt.key && styles.segTextActive]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {recurMonthMode === 'day' ? (
+                <>
+                  <Text style={styles.label}>Day of month (1–31)</Text>
+                  <TextInput style={styles.input} value={recurDayOfMonth} onChangeText={setRecurDayOfMonth} keyboardType="numeric" placeholder="1" placeholderTextColor="#aaa" />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.label}>Which</Text>
+                  <View style={styles.segmentRow}>
+                    {[{ label: '1st', n: 1 }, { label: '2nd', n: 2 }, { label: '3rd', n: 3 }, { label: '4th', n: 4 }, { label: 'Last', n: -1 }].map(opt => (
+                      <TouchableOpacity
+                        key={opt.n}
+                        style={[styles.segBtn, recurNth === opt.n && styles.segBtnActive]}
+                        onPress={() => setRecurNth(opt.n)}
+                      >
+                        <Text style={[styles.segText, recurNth === opt.n && styles.segTextActive]}>{opt.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <Text style={styles.label}>Day of Week</Text>
+                  <View style={styles.dowRow}>
+                    {DOW_LABELS.map((d, i) => (
+                      <TouchableOpacity
+                        key={i}
+                        style={[styles.dowBtn, recurWeekday === i && styles.dowBtnActive]}
+                        onPress={() => setRecurWeekday(i)}
+                      >
+                        <Text style={[styles.dowText, recurWeekday === i && styles.dowTextActive]}>{d}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
             </>
           )}
+
+          <DatePickerField
+            label="Starts"
+            value={strToDate(recurStartDate)}
+            onChange={d => setRecurStartDate(dateToStr(d))}
+            placeholder="Pick a start date"
+          />
+
+          <Text style={styles.label}>Ends</Text>
+          <View style={styles.segmentRow}>
+            {[{ key: 'never', label: 'Never' }, { key: 'date', label: 'On date' }, { key: 'count', label: 'After N' }].map(opt => (
+              <TouchableOpacity
+                key={opt.key}
+                style={[styles.segBtn, recurEndMode === opt.key && styles.segBtnActive]}
+                onPress={() => setRecurEndMode(opt.key)}
+              >
+                <Text style={[styles.segText, recurEndMode === opt.key && styles.segTextActive]}>{opt.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {recurEndMode === 'date' && (
+            <DatePickerField
+              label="End date"
+              value={strToDate(recurEndDate)}
+              onChange={d => setRecurEndDate(dateToStr(d))}
+              placeholder="Pick an end date"
+            />
+          )}
+          {recurEndMode === 'count' && (
+            <View style={styles.intervalRow}>
+              <Text style={styles.intervalUnit}>After</Text>
+              <TextInput
+                style={[styles.input, styles.intervalInput]}
+                value={recurEndCount}
+                onChangeText={setRecurEndCount}
+                keyboardType="numeric"
+                placeholder="10"
+                placeholderTextColor="#aaa"
+              />
+              <Text style={styles.intervalUnit}>times</Text>
+            </View>
+          )}
+
+          <Text style={styles.recurSummary}>{recurSummaryText()}</Text>
+          <Text style={styles.recurPreview}>{recurPreviewText()}</Text>
+
           <SwitchRow
             label="Persist if missed"
             desc="Stays on the list if you miss the scheduled day (e.g. snake feeding)"
             value={recurPersistent}
             onChange={setRecurPersistent}
           />
+          <SwitchRow
+            label="Escalate priority if overdue"
+            desc="Steps priority up a level for every N days it sits unfinished, then resets on the next occurrence. Needs 'Persist if missed' on."
+            value={recurEscalate}
+            onChange={setRecurEscalate}
+          />
+          {recurEscalate && (
+            <>
+              {!recurPersistent && (
+                <Text style={[styles.sublabel, { color: '#c0392b' }]}>
+                  Turn on “Persist if missed” too — otherwise a missed occurrence disappears before it can escalate.
+                </Text>
+              )}
+              <Text style={styles.label}>Escalate every</Text>
+              <View style={styles.intervalRow}>
+                <TextInput
+                  style={[styles.input, styles.intervalInput]}
+                  value={recurEscalateDays}
+                  onChangeText={setRecurEscalateDays}
+                  keyboardType="numeric"
+                  placeholder="3"
+                  placeholderTextColor="#aaa"
+                />
+                <Text style={styles.intervalUnit}>day(s) overdue</Text>
+              </View>
+              <Text style={styles.label}>Ceiling (max priority)</Text>
+              <PriorityRow value={priorityCeiling} onChange={setPriorityCeiling} options={[2,3,4]} />
+            </>
+          )}
           <Text style={styles.label}>Auto-hide after N skips (optional)</Text>
           <Text style={styles.sublabel}>If skipped this many times in a row, steps back until next occurrence. Leave blank to always show.</Text>
           <TextInput style={styles.input} value={autoHideAfterSkips} onChangeText={setAutoHideAfterSkips} keyboardType="numeric" placeholder="e.g. 3" placeholderTextColor="#aaa" />
@@ -990,6 +1243,16 @@ const styles = StyleSheet.create({
   leadTimeRow: { gap: 8 },
   leadTimeInput: { marginBottom: 8 },
   leadUnitRow: { flexDirection: 'row', gap: 8 },
+  intervalRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  intervalInput: { width: 80, textAlign: 'center' },
+  intervalUnit: { fontSize: 16, color: COLORS.text },
+  recurSummary: {
+    marginTop: 16, padding: 12, borderRadius: 10,
+    backgroundColor: '#eaf2fb', color: COLORS.text,
+    borderWidth: 1, borderColor: COLORS.primary,
+    fontSize: 14, fontWeight: '600', fontStyle: 'italic',
+  },
+  recurPreview: { marginTop: 6, fontSize: 13, color: COLORS.subtext, fontWeight: '500' },
   actionCard: {
     backgroundColor: '#fff', borderRadius: 12, padding: 14,
     marginBottom: 12, borderWidth: 1, borderColor: COLORS.border,

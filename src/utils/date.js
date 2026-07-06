@@ -38,6 +38,19 @@ export function parseUtcStamp(s) {
   return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso + 'Z');
 }
 
+/**
+ * Compact display of a local-midnight Date: 'Jul 14', or 'Jan 3 2027' when the
+ * year differs from now. Used for the "upcoming occurrences" previews. The Date
+ * must already be at local midnight (as the recurrence engine returns), so the
+ * rendered day matches the user's calendar.
+ */
+export function formatShortDate(date) {
+  if (!date) return '';
+  const opts = { month: 'short', day: 'numeric' };
+  if (date.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return date.toLocaleDateString('en-US', opts);
+}
+
 /** Returns a LOCAL datetime string 'YYYY-MM-DD HH:MM:SS' (used for snooze targets). */
 export function localDateTimeStr(date = new Date()) {
   const hh = String(date.getHours()).padStart(2, '0');

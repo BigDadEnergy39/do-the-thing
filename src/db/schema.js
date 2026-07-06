@@ -125,6 +125,14 @@ function initDbSync(db) {
     `ALTER TABLE tasks ADD COLUMN anchor_nth_rule TEXT`,
     // Due reminders: JSON array of {amount, unit} advance notification configs
     `ALTER TABLE tasks ADD COLUMN due_reminders TEXT`,
+    // Recurring: how the NEXT occurrence is anchored.
+    //   null / 'schedule' → fixed calendar slots (first Monday, every other Tue)
+    //   'completion'      → rolling: N days/weeks/months after the last completion
+    `ALTER TABLE tasks ADD COLUMN recur_anchor TEXT`,
+    // Recurring: escalate priority one level per this many days a pending
+    // occurrence is overdue, capped at priority_ceiling. Resets each occurrence.
+    // null → no escalation (preserves existing recurring tasks' behavior).
+    `ALTER TABLE tasks ADD COLUMN recur_escalate_days INTEGER`,
   ];
   for (const sql of migrations) {
     try { db.execSync(sql); } catch (_) { /* column already exists */ }

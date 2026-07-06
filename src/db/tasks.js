@@ -28,13 +28,13 @@ export function createTask(task) {
     `INSERT INTO tasks (
       title, notes, category_id, task_type, base_priority, priority_ceiling,
       due_date, due_time, escalate_days_out, escalate_to_priority,
-      recur_rule, recur_persistent, recur_display_overdue,
+      recur_rule, recur_persistent, recur_display_overdue, recur_anchor, recur_escalate_days,
       rand_min_days, rand_max_days, rand_persistent, rand_next_date,
       anchor_date, anchor_year, anchor_label,
       goal_minutes, goal_reset,
       notification_config, auto_escalate_days, auto_hide_after_skips,
       has_timer, duration_intent, preferred_time, habit_window, snooze_until, anchor_nth_rule, due_reminders
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       task.title,
       task.notes ?? null,
@@ -49,6 +49,8 @@ export function createTask(task) {
       task.recur_rule ?? null,
       task.recur_persistent ? 1 : 0,
       task.recur_display_overdue !== false ? 1 : 0,
+      task.recur_anchor ?? null,
+      task.recur_escalate_days ?? null,
       task.rand_min_days ?? null,
       task.rand_max_days ?? null,
       task.rand_persistent ? 1 : 0,
@@ -78,7 +80,7 @@ export function updateTask(id, fields) {
   const allowed = [
     'title','notes','category_id','base_priority','priority_ceiling',
     'due_date','due_time','escalate_days_out','escalate_to_priority',
-    'recur_rule','recur_persistent','recur_display_overdue',
+    'recur_rule','recur_persistent','recur_display_overdue','recur_anchor','recur_escalate_days',
     'rand_min_days','rand_max_days','rand_persistent','rand_next_date',
     'anchor_date','anchor_year','anchor_label',
     'goal_minutes','goal_reset','notification_config',

@@ -5,7 +5,8 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getTaskById, archiveTask, updateTask, getCompletionsForTask } from '../../src/db/tasks';
 import { cancelAllForTask } from '../../src/notifications/notificationService';
-import { parseLocalDay, parseUtcStamp } from '../../src/utils/date';
+import { parseLocalDay, parseUtcStamp, formatShortDate } from '../../src/utils/date';
+import { describeRule, upcomingOccurrences, normalizeRule, addByFreq } from '../../src/engine/recurrence';
 import { COLORS, PRIORITY_COLORS, PRIORITY_LABELS } from '../../src/components/theme';
 
 export default function TaskDetailScreen() {
@@ -58,17 +59,34 @@ export default function TaskDetailScreen() {
     return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${period}`;
   };
 
-  const getRecurSummary = () => {
+  // describeRule handles both the new v2 rules and legacy shapes.
+  const getRecurSummary = () => (task.recur_rule ? describeRule(task.recur_rule) : '—');
+
+  // Upcoming occurrences. Fixed schedule → the next 3 calendar dates. Rolling
+  // ("from last done") → the single next due date, computed from the most recent
+  // completion (or the start date if never completed), since future dates there
+  // depend on when each one is actually finished.
+  const getRecurNext = () => {
     if (!task.recur_rule) return '—';
-    try {
-      const rule = JSON.parse(task.recur_rule);
-      const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-      if (rule.type === 'weekly') return `Weekly: ${(rule.days || []).map(d => DOW[d]).join(', ')}`;
-      if (rule.type === 'daily') return 'Every day';
-      if (rule.type === 'monthly') return `Monthly on day(s): ${(rule.days || []).join(', ')}`;
-      if (rule.type === 'interval') return `Every ${rule.interval} days`;
-    } catch {}
-    return task.recur_rule;
+    if (task.recur_anchor === 'completion') {
+      const rule = normalizeRule(task.recur_rule);
+      if (!rule) return '—';
+      // Most recent completion, regardless of list order (completed_at is a
+      // sortable UTC 'YYYY-MM-DD HH:MM:SS' string).
+      const latest = completions.reduce(
+        (a, c) => (!a || c.completed_at > a.completed_at ? c : a), null);
+      const lastStamp = latest ? parseUtcStamp(latest.completed_at) : null;
+      let due;
+      if (lastStamp) {
+        const lastDay = new Date(lastStamp.getFullYear(), lastStamp.getMonth(), lastStamp.getDate());
+        due = addByFreq(lastDay, rule.freq, rule.interval);
+      } else {
+        due = rule.start_date ? parseLocalDay(rule.start_date) : null;
+      }
+      return due ? `${formatShortDate(due)} · rolls from completion` : '—';
+    }
+    const dates = upcomingOccurrences(task.recur_rule, 3);
+    return dates.length ? dates.map(formatShortDate).join(', ') : '—';
   };
 
   return (
@@ -97,6 +115,7 @@ export default function TaskDetailScreen() {
         </>}
         {task.task_type === 'recurring' && <>
           <DetailRow label="Schedule" value={getRecurSummary()} />
+          <DetailRow label="Next" value={getRecurNext()} />
           <DetailRow label="Persistent if missed" value={task.recur_persistent ? 'Yes' : 'No'} />
         </>}
         {task.task_type === 'randomized' && <>

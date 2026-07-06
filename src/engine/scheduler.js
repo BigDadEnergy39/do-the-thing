@@ -5,7 +5,8 @@
 
 import { getAllTasks, getLastCompletion, updateTask, getTodayCompletedTasks } from '../db/tasks';
 import { getTodayHabitCheckin, getHabitStreak } from '../db/habits';
-import { localDateStr, localDateTimeStr, parseLocalDateTime } from '../utils/date';
+import { localDateStr, localDateTimeStr, parseLocalDateTime, parseLocalDay } from '../utils/date';
+import { isDue, nextOccurrence, currentOccurrence, addByFreq, normalizeRule, nthWeekdayOfMonth } from './recurrence';
 
 const TODAY = () => {
   const d = new Date();
@@ -71,105 +72,58 @@ function computeAutoEscalatedPriority(task, today, lastCompletion) {
 }
 
 // ─── Recurring helpers ────────────────────────────────────────────────────────
+// All recurrence math now lives in ./recurrence (canonical rule engine, handles
+// v2 rules + legacy shapes). These thin wrappers adapt it to the scheduler's
+// task/date vocabulary.
 function isRecurringDueToday(task, today) {
   if (!task.recur_rule) return false;
-  const rule = parseRule(task.recur_rule);
-  const dow = today.getDay();
-  const dom = today.getDate();
-  if (rule.type === 'weekly') return (rule.days || []).includes(dow);
-  if (rule.type === 'daily') return true;
-  if (rule.type === 'monthly') return (rule.days || []).includes(dom);
-  if (rule.type === 'interval') {
-    const start = toDate(rule.start_date);
-    if (!start) return false;
-    const diff = daysBetween(start, today);
-    return diff >= 0 && diff % rule.interval === 0;
-  }
-  return false;
+  return isDue(task.recur_rule, today);
 }
 
-function getRecurringOverdueDays(task, today, lastCompletion) {
-  const rule = parseRule(task.recur_rule);
-  const lastDate = lastCompletion ? toDate(lastCompletion.completed_at) : null;
-  // A past occurrence before the task was created can't be "missed" — the task didn't exist yet.
+/**
+ * Resolve where a recurring task stands *right now*, for either anchoring mode:
+ *   { occ, overdueDays, pending }
+ *     occ         — the date of the occurrence the task is currently sitting in
+ *     overdueDays — days since that occurrence (0 on the occurrence day itself)
+ *     pending     — whether it's actionable now (not satisfied, not pre-creation)
+ *
+ * 'schedule' (fixed calendar): occ = the most recent occurrence ≤ today, so a
+ *   brand-new occurrence resets overdueDays to 0 even if the last one was never
+ *   done — which is what makes per-occurrence escalation reset each cycle.
+ * 'completion' (rolling): the due date is `interval` after the last completion
+ *   (or the start/creation date before the first completion).
+ */
+function computeRecurringWindow(task, today, lastCompletion) {
   const createdDate = toDate(task.created_at) ?? today;
+  const lastDone = lastCompletion ? toDate(lastCompletion.completed_at) : null;
 
-  if (rule.type === 'weekly') {
-    let check = new Date(today);
-    check.setDate(check.getDate() - 1);
-    for (let i = 0; i < 14; i++) {
-      if ((rule.days || []).includes(check.getDay())) {
-        if (check < createdDate) return 0; // occurrence predates task creation — not overdue
-        if (!lastDate || lastDate < check) return daysBetween(check, today);
-        return 0;
-      }
-      check.setDate(check.getDate() - 1);
-    }
+  if (task.recur_anchor === 'completion') {
+    const rule = normalizeRule(task.recur_rule) ?? { freq: 'daily', interval: 1 };
+    const start = rule.start_date ? toDate(rule.start_date) : createdDate;
+    const due = lastDone
+      ? addByFreq(lastDone, rule.freq || 'daily', rule.interval || 1)
+      : (start ?? createdDate);
+    if (!due) return { occ: null, overdueDays: 0, pending: false };
+    return { occ: due, overdueDays: Math.max(0, daysBetween(due, today)), pending: today >= due };
   }
-  if (rule.type === 'daily') {
-    // For daily tasks, overdue is measured from the later of created_at or last completion.
-    const baseline = lastDate ?? createdDate;
-    const diff = daysBetween(baseline, today);
-    return diff > 1 ? diff - 1 : 0;
-  }
-  if (rule.type === 'interval') {
-    const start = toDate(rule.start_date);
-    if (!start) return 0;
-    let check = new Date(today);
-    check.setDate(check.getDate() - 1);
-    for (let i = 0; i < (rule.interval ?? 7) * 2; i++) {
-      const diff = daysBetween(start, check);
-      if (diff >= 0 && diff % rule.interval === 0) {
-        if (check < createdDate) return 0; // occurrence predates task creation — not overdue
-        if (!lastDate || lastDate < check) return daysBetween(check, today);
-        return 0;
-      }
-      check.setDate(check.getDate() - 1);
-    }
-  }
-  return 0;
-}
 
-function parseRule(raw) {
-  if (!raw) return {};
-  try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return {}; }
+  // Fixed calendar schedule.
+  const occ = currentOccurrence(task.recur_rule, today);
+  if (!occ || occ < createdDate) return { occ: null, overdueDays: 0, pending: false };
+  // Completed on/after this occurrence → satisfied for this cycle.
+  if (lastDone && lastDone >= occ) return { occ, overdueDays: 0, pending: false };
+  return { occ, overdueDays: daysBetween(occ, today), pending: true };
 }
 
 // The next date (after `today`, at local midnight) on which a recurring task is
 // due. Used by skipTask to hide a skipped occurrence until the next one.
+// Rolling tasks have no fixed calendar, so a skip pushes out by one interval.
 function computeNextRecurrence(task, today) {
-  const rule = parseRule(task.recur_rule);
-  if (rule.type === 'daily') {
-    const d = new Date(today); d.setDate(d.getDate() + 1); return d;
+  if (task.recur_anchor === 'completion') {
+    const rule = normalizeRule(task.recur_rule) ?? { freq: 'daily', interval: 1 };
+    return addByFreq(today, rule.freq || 'daily', rule.interval || 1);
   }
-  if (rule.type === 'weekly') {
-    const days = rule.days || [];
-    for (let i = 1; i <= 7; i++) {
-      const d = new Date(today); d.setDate(d.getDate() + i);
-      if (days.includes(d.getDay())) return d;
-    }
-    return null;
-  }
-  if (rule.type === 'monthly') {
-    const doms = rule.days || [];
-    for (let i = 1; i <= 62; i++) {
-      const d = new Date(today); d.setDate(d.getDate() + i);
-      if (doms.includes(d.getDate())) return d;
-    }
-    return null;
-  }
-  if (rule.type === 'interval') {
-    const start = toDate(rule.start_date);
-    const interval = rule.interval ?? 7;
-    if (!start) { const d = new Date(today); d.setDate(d.getDate() + interval); return d; }
-    for (let i = 1; i <= interval * 2; i++) {
-      const d = new Date(today); d.setDate(d.getDate() + i);
-      const diff = daysBetween(start, d);
-      if (diff >= 0 && diff % interval === 0) return d;
-    }
-    return null;
-  }
-  return null;
+  return nextOccurrence(task.recur_rule, today);
 }
 
 function wasCompletedToday(lastCompletion, today) {
@@ -182,19 +136,8 @@ function wasCompletedToday(lastCompletion, today) {
   return completedAt >= today && completedAt < startOfTomorrow;
 }
 
-function nthWeekdayOfMonth(year, month, weekday, n) {
-  if (n === -1) {
-    // Last occurrence: work backward from last day of month
-    const last = new Date(year, month, 0);
-    last.setHours(0, 0, 0, 0);
-    last.setDate(last.getDate() - (last.getDay() - weekday + 7) % 7);
-    return last;
-  }
-  const first = new Date(year, month - 1, 1);
-  const d = new Date(year, month - 1, 1 + (weekday - first.getDay() + 7) % 7 + (n - 1) * 7);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
+// nthWeekdayOfMonth is imported from ./recurrence (single source of truth for
+// this math, shared with the recurring-task engine).
 
 function computeAnchorNextDate(task, today) {
   // Floating holiday: nth weekday of a given month
@@ -319,23 +262,26 @@ export function buildDailyList() {
 
     // ── Recurring ─────────────────────────────────────────────────────────
     else if (task.task_type === 'recurring') {
-      const dueToday = isRecurringDueToday(task, today);
-      const od = task.recur_persistent
-        ? getRecurringOverdueDays(task, today, last)
-        : 0;
-
-      if (od > 0 && task.recur_persistent && task.recur_display_overdue) {
-        if (shouldAutoHide(task, today)) {
-          // step back — don't include
+      const w = computeRecurringWindow(task, today, last);
+      if (w.pending) {
+        if (w.overdueDays > 0) {
+          // Missed the occurrence day. Only persistent tasks linger to show it.
+          if (task.recur_persistent && task.recur_display_overdue) {
+            if (shouldAutoHide(task, today)) {
+              // stepped back after too many skips — don't include
+            } else {
+              recordSkipIfNeeded(task, today);
+              overdueDays = w.overdueDays;
+              displayLabel = `-${w.overdueDays}d`;
+              include = true;
+            }
+          }
+          // non-persistent + overdue → drops off the list
         } else {
-          recordSkipIfNeeded(task, today);
-          overdueDays = od;
-          displayLabel = `-${od}d`;
+          // overdueDays === 0 → this is the occurrence day itself
           include = true;
+          displayLabel = 'Today';
         }
-      } else if (dueToday) {
-        include = true;
-        displayLabel = 'Today';
       }
     }
 
@@ -388,6 +334,14 @@ export function buildDailyList() {
       if (daysUntilDue < 0) effectivePriority = 4;
       else if (daysUntilDue <= task.escalate_days_out)
         effectivePriority = Math.max(effectivePriority, task.escalate_to_priority ?? 3);
+    }
+
+    // Recurring escalation: step up one level per N days the current occurrence
+    // is overdue, capped at the ceiling. overdueDays resets each occurrence
+    // (see computeRecurringWindow), so next cycle starts back at base priority.
+    if (task.task_type === 'recurring' && task.recur_escalate_days > 0 && overdueDays > 0) {
+      const steps = Math.floor(overdueDays / task.recur_escalate_days);
+      effectivePriority = Math.min(effectivePriority + steps, task.priority_ceiling ?? 4);
     }
 
     // Anchor escalation
