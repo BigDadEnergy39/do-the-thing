@@ -30,6 +30,8 @@ storage.
 - We **accept** this rather than adopt SQLCipher, which adds build/native
   complexity and F-Droid friction for little benefit given the data class.
 - **Revisit** if the app ever stores secrets or sensitive personal data.
+- **Exception:** if the user opts into a durable backup folder, unencrypted
+  backups also leave app-private storage — see *Durable off-device backups* below.
 
 ### Permissions — least privilege (INFO-2)
 
@@ -57,6 +59,26 @@ Every declared permission maps to a feature:
   (`dtt-preimport-*.json`) so a valid-but-unwanted import is recoverable.
 - `restoreRows` keeps values **parameterised** and gates the interpolated table
   and column identifiers behind an explicit allowlist + identifier check.
+- `restoreFromPrivateFile` accepts **only** names matching an anchored
+  `dtt-backup-…json` regex before interpolating them into a path — no traversal.
+- Backups are **append-only**: each write is a unique timestamped file that never
+  overwrites or deletes an earlier one; old files age out by retention window
+  only. Pruning (private 7-day, durable 30-day) deletes **only** files matching
+  the `dtt-backup-*.json` pattern, never other files in a user's folder.
+
+### Durable off-device backups — *plaintext, user-initiated* (LOW-3)
+
+The user may grant a folder (SAF) that the daily task also writes to, so backups
+survive uninstall. Those JSON backups are **unencrypted**, like the in-app ones.
+
+- If the chosen folder is **cloud-synced** (Nextcloud, Syncthing) or otherwise
+  readable by other apps, task names and notes leave the device **in the clear**.
+- This is **opt-in and user-chosen**; the app cannot control the folder's own
+  access. We **inform** at the point of consent (a caution in the folder-set
+  confirmation and the Backup section copy) rather than encrypt.
+- **Revisit** with optional passphrase-encrypted backups if users store genuinely
+  sensitive content — the notification-privacy toggle (`private_notifications`)
+  hardened one surface; encrypted backups would harden the other.
 
 ## Rules for future changes
 
