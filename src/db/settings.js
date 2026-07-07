@@ -9,6 +9,10 @@ const DEFAULTS = {
   summary_time_2: '17:00',
   weekly_review_day: '0', // Sunday
   weekly_review_time: '20:00',
+  // Privacy: when '1', notifications omit task names entirely and use generic
+  // text, so nothing sensitive reaches the lock screen, a paired watch, or any
+  // notification-listener app. Off by default (names shown, as before).
+  private_notifications: '0',
 };
 
 export function getSetting(key) {

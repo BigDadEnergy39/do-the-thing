@@ -57,6 +57,24 @@ function nextWeeklyTimestamp(weekday, hour, minute) {
   return d.getTime();
 }
 
+// Privacy by content (learned from MedTracker): a phone-side lock-screen
+// `visibility` flag only governs the phone's own lock screen — a paired watch,
+// Android Auto, or any notification-listener app still receives the real
+// title/body. The only way to keep a task name off *every* surface is to not
+// put it in the notification at all. So when the user turns on
+// `private_notifications`, every name-bearing notification falls back to a
+// generic body; the task id still rides in `data` so a tap opens the right task.
+function notificationsArePrivate() {
+  return getSetting('private_notifications') === '1';
+}
+
+const GENERIC = {
+  due:     'A task is coming due — open Do The Thing.',
+  overdue: 'A high-priority task is overdue — open Do The Thing.',
+  snooze:  'A snoozed task is back — open Do The Thing.',
+  habit:   'A habit is waiting for a check-in — open Do The Thing.',
+};
+
 export async function requestPermissions() {
   try {
     const settings = await notifee.requestPermission();
@@ -143,7 +161,9 @@ export async function scheduleDeadlineReminders(task) {
         {
           id: `deadline-adv-${task.id}-${i}`,
           title: 'Do The Thing',
-          body: coach.taskDueReminder(task.title, Math.round(offsetMs / 60000)),
+          body: notificationsArePrivate()
+            ? GENERIC.due
+            : coach.taskDueReminder(task.title, Math.round(offsetMs / 60000)),
           data: { taskId: String(task.id) },
           android: { channelId: 'deadline_reminder', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
         },
@@ -162,7 +182,7 @@ export async function scheduleDeadlineReminders(task) {
           {
             id: `deadline-ovd-${task.id}-${i}`,
             title: '⚠️ Do The Thing',
-            body: coach.taskCriticalOverdue(task.title),
+            body: notificationsArePrivate() ? GENERIC.overdue : coach.taskCriticalOverdue(task.title),
             data: { taskId: String(task.id) },
             android: { channelId: 'deadline_critical', actions: CRITICAL_OVERDUE_ACTIONS, pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
           },
@@ -170,6 +190,23 @@ export async function scheduleDeadlineReminders(task) {
         );
       } catch { /* unavailable */ }
     }
+  }
+}
+
+// Re-issue every deadline task's reminders. Needed when the privacy setting
+// changes, because a scheduled notification's body is fixed at schedule time —
+// already-scheduled alarms keep their old (named or generic) text until they're
+// cancelled and recreated.
+export async function rescheduleAllDeadlineReminders() {
+  try {
+    const { getAllTasks } = require('../db/tasks');
+    for (const task of getAllTasks()) {
+      if (task.due_date && task.due_time) {
+        await scheduleDeadlineReminders(task);
+      }
+    }
+  } catch (e) {
+    console.log('rescheduleAllDeadlineReminders error:', e.message);
   }
 }
 
@@ -190,6 +227,8 @@ function computeEveningWrapup() {
 function eveningWrapupBody(persona) {
   const coach = getCoachText(persona);
   const { done, remaining, missedHabits } = computeEveningWrapup();
+  // Private mode: drop the missed-habit names, keep the counts-only version.
+  if (notificationsArePrivate()) return coach.eveningWrapup(done, remaining);
   return coach.eveningBody
     ? coach.eveningBody(done, remaining, missedHabits)
     : coach.eveningWrapup(done, remaining);
@@ -209,6 +248,8 @@ function computeMorningBriefing() {
 function morningBriefingBody(persona) {
   const coach = getCoachText(persona);
   const { count, criticalTitles } = computeMorningBriefing();
+  // Private mode: drop the critical task names, keep the count-only version.
+  if (notificationsArePrivate()) return coach.morningBriefing(count);
   return coach.morningBody
     ? coach.morningBody(count, criticalTitles)
     : coach.morningBriefing(count);
@@ -359,7 +400,7 @@ export async function snoozeNotification(taskId, title, snoozeMinutes = 15) {
   return scheduleTaskNotification({
     taskId,
     title: 'Do The Thing',
-    body: coach.taskDueReminder(cleanTitle, snoozeMinutes),
+    body: notificationsArePrivate() ? GENERIC.snooze : coach.taskDueReminder(cleanTitle, snoozeMinutes),
     triggerTimestamp: Date.now() + snoozeMinutes * 60 * 1000,
   });
 }
@@ -379,11 +420,13 @@ export async function fireHabitNudges(missedHabits) {
     const coach = getCoachText(persona);
     for (const { title, daysMissed } of missedHabits) {
       if (daysMissed < threshold) continue;
-      const body = coach.habitNudge(title, daysMissed);
-      if (!body) continue;
+      // Compute the coach line to honour the persona's opt-out gate, but only
+      // show the habit name when not in private mode.
+      const coachBody = coach.habitNudge(title, daysMissed);
+      if (!coachBody) continue;
       await notifee.displayNotification({
         title: 'Do The Thing',
-        body,
+        body: notificationsArePrivate() ? GENERIC.habit : coachBody,
         android: { channelId: 'habit_nudge', pressAction: { id: 'default' }, smallIcon: 'ic_notification' },
       });
     }
@@ -408,7 +451,8 @@ async function rescheduleMidayNudges(taskCount, criticalTasks = []) {
     if (slotCount === 0) return;
 
     let body = coach.nudge(taskCount);
-    if (criticalTasks.length > 0) {
+    // Private mode: omit the "Still open: <names>" line so no task name leaks.
+    if (criticalTasks.length > 0 && !notificationsArePrivate()) {
       const shown = criticalTasks.slice(0, 2);
       const extra = criticalTasks.length - shown.length;
       const names = shown.map(t => t.title).join(', ');
@@ -557,11 +601,8 @@ async function fireEveningWrapup() {
     const nudgeLevel = PERSONA_NUDGE_LEVEL[persona] ?? 0;
     if (nudgeLevel === 0) return;
 
-    const coach = getCoachText(persona);
-    const { done, remaining, missedHabits } = computeEveningWrapup();
-    const body  = coach.eveningBody
-      ? coach.eveningBody(done, remaining, missedHabits)
-      : coach.eveningWrapup(done, remaining);
+    const { missedHabits } = computeEveningWrapup();
+    const body = eveningWrapupBody(persona); // privacy-aware; drops habit names when private
 
     await notifee.displayNotification({
       id: IDS.EVENING,
