@@ -166,9 +166,10 @@ export default function SettingsScreen() {
         setLastBackup(await getLastAutoBackupInfo());
         Alert.alert(
           'Backup folder set',
-          path
+          (path
             ? 'Daily backups will now also be saved here, so they survive uninstalling the app.'
-            : 'Backups will be saved here automatically once you have tasks. Your existing backups in this folder are untouched.'
+            : 'Backups will be saved here automatically once you have tasks. Your existing backups in this folder are untouched.')
+          + '\n\nNote: backups are not encrypted — anyone or any app with access to this folder can read your task names and notes.'
         );
       }
     } catch (e) {
@@ -376,6 +377,8 @@ export default function SettingsScreen() {
       <Text style={styles.sectionDesc}>
         Auto-backup runs daily in the background, keeping the last 7 days on your device.
         Choose a backup folder to also keep copies that survive uninstalling the app.
+        Backups aren't encrypted, so pick a folder only you can read — anything with
+        access to it (or to a synced copy) can read your task names and notes.
       </Text>
 
       {/* Nudge — shown only until a durable folder is chosen (or dismissed). */}
