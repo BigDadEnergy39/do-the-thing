@@ -9,7 +9,7 @@ import { TimePickerField } from '../src/components/TimePickerField';
 import { useRouter } from 'expo-router';
 import { getSetting, setSetting, getAllSettings } from '../src/db/settings';
 import { PERSONA_OPTIONS } from '../src/components/CoachText';
-import { scheduleCoachingNotifications } from '../src/notifications/notificationService';
+import { scheduleCoachingNotifications, rescheduleAllDeadlineReminders } from '../src/notifications/notificationService';
 import notifee, { TriggerType } from '@notifee/react-native';
 import {
   shareBackup, pickAndImportBackup, getLastAutoBackupInfo, saveAutoBackup,
@@ -64,6 +64,18 @@ export default function SettingsScreen() {
   const handleSaveNotificationSettings = async () => {
     await scheduleCoachingNotifications();
     Alert.alert('Saved', 'Notification schedule updated.');
+  };
+
+  // Privacy toggle: hide task names from notifications entirely (generic text).
+  // Because a scheduled notification's body is fixed when it's scheduled, we
+  // re-issue the already-scheduled coaching + deadline notifications so the
+  // change applies immediately, not just to notifications posted from now on.
+  const handleTogglePrivateNotifications = async (value) => {
+    updateSetting('private_notifications', value ? '1' : '0');
+    try {
+      await scheduleCoachingNotifications();
+      await rescheduleAllDeadlineReminders();
+    } catch { /* best-effort — new notifications already respect the setting */ }
   };
 
   const handleTestNotification = async () => {
@@ -319,6 +331,26 @@ export default function SettingsScreen() {
         <Text style={styles.testBtnText}>🔔 Send Test Notification (10s)</Text>
       </TouchableOpacity>
 
+      {/* ── Privacy ── */}
+      <Text style={[styles.sectionHeader, styles.sectionSpacing]}>Privacy</Text>
+      <Text style={styles.sectionDesc}>Keep task names out of your notifications.</Text>
+      <View style={styles.privacyRow}>
+        <View style={styles.privacyTextCol}>
+          <Text style={styles.privacyLabel}>Hide task names in notifications</Text>
+          <Text style={styles.privacyHint}>
+            When on, reminders use generic text ("A task is coming due") with no
+            task name — so nothing sensitive shows on your lock screen, a paired
+            watch, or any other app that mirrors notifications. Tapping still opens
+            the right task.
+          </Text>
+        </View>
+        <Switch
+          value={settings.private_notifications === '1'}
+          onValueChange={handleTogglePrivateNotifications}
+          trackColor={{ true: COLORS.primary }}
+        />
+      </View>
+
       {/* ── Categories ── */}
       <Text style={[styles.sectionHeader, styles.sectionSpacing]}>Categories</Text>
       <Text style={styles.sectionDesc}>Organize your tasks by category.</Text>
@@ -568,6 +600,15 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border, padding: 14, alignItems: 'center', marginTop: 4,
   },
   testBtnText: { color: COLORS.subtext, fontWeight: '600', fontSize: 14 },
+
+  // Privacy
+  privacyRow: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
+    borderRadius: 10, padding: 14, borderWidth: 1, borderColor: COLORS.border,
+  },
+  privacyTextCol: { flex: 1, paddingRight: 12 },
+  privacyLabel: { fontSize: 15, fontWeight: '600', color: COLORS.text, marginBottom: 4 },
+  privacyHint: { fontSize: 13, color: COLORS.subtext, lineHeight: 18 },
 
   // Categories
   catRow: {
