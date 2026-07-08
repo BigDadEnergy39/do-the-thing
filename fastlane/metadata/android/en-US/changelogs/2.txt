@@ -1,0 +1,6 @@
+First release on F-Droid.
+
+A local-first personal coach for getting things done: seven task types,
+a two-factor priority engine with auto-escalation, five coach personas,
+a full daily notification cadence, and on-device backup. Fully offline —
+no account, no cloud, no tracking.
