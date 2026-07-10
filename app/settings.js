@@ -10,7 +10,8 @@ import { useRouter } from 'expo-router';
 import { getSetting, setSetting, getAllSettings } from '../src/db/settings';
 import { PERSONA_OPTIONS } from '../src/components/CoachText';
 import { scheduleCoachingNotifications, rescheduleAllDeadlineReminders } from '../src/notifications/notificationService';
-import notifee, { TriggerType } from '@notifee/react-native';
+import notifee, { TriggerType } from 'react-native-notify-kit';
+import Constants from 'expo-constants';
 import {
   shareBackup, pickAndImportBackup, getLastAutoBackupInfo, saveAutoBackup,
   pickBackupFolder, clearBackupFolder, getDurableBackupStatus,
@@ -468,7 +469,10 @@ export default function SettingsScreen() {
       {/* ── About ── */}
       <Text style={[styles.sectionHeader, styles.sectionSpacing]}>About</Text>
       <View style={styles.aboutCard}>
-        <Text style={styles.aboutText}>Do The Thing  v1.0.0</Text>
+        {/* Version read dynamically from app.json (Constants.expoConfig.version) so the
+            About screen can never drift from the real release version, as it did when it
+            was hardcoded 'v1.0.0' through the 1.1.0 bump. */}
+        <Text style={styles.aboutText}>Do The Thing  v{Constants.expoConfig?.version ?? ''}</Text>
         <Text style={styles.aboutDesc}>
           Your personal coach — keeping what matters front and center.
         </Text>

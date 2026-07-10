@@ -8,16 +8,21 @@ A dynamic personal coach that surfaces what matters daily — not a static list,
 ## Stack
 - Expo SDK ~56 with expo-router (file-based navigation)
 - `expo-sqlite` — local persistence
-- `@notifee/react-native` for local scheduled notifications (no FCM/Firebase) + `expo-task-manager` + `expo-background-fetch` for background refresh (WorkManager)
+- `react-native-notify-kit` (source-built, drop-in notifee fork) for local scheduled notifications (no FCM/Firebase) + `expo-task-manager` + `expo-background-fetch` for background refresh (WorkManager)
 - No external backend — fully local
 
 ## Publishing target — F-Droid (hard requirement)
 The end goal is publication on **F-Droid**. Every change must keep the app F-Droid-eligible:
 - **License:** GPL-3.0-or-later. `LICENSE` holds the verbatim GPL-3.0 text. Set the copyright holder in source headers / a future README before submitting.
-- **No proprietary dependencies:** no Google Play Services, Firebase/FCM, Crashlytics, AdMob, or any closed-source SDK. Notifications are local via notifee; background work uses WorkManager. Before adding ANY dependency, confirm it's FOSS and FCM-free, and flag it if not.
+- **No proprietary dependencies:** no Google Play Services, Firebase/FCM, Crashlytics, AdMob, or any closed-source SDK. Notifications are local via react-native-notify-kit; background work uses WorkManager. Before adding ANY dependency, confirm it's FOSS and FCM-free, and flag it if not.
 - **No anti-features:** no analytics, ads, tracking, or telemetry. The app is fully offline with no account or cloud sync.
 - **Clean manifest:** `android/app/src/main/AndroidManifest.xml` is kept free of orphaned Firebase/expo-updates meta-data and unnecessary sensitive permissions (e.g. `SYSTEM_ALERT_WINDOW` was removed). Don't reintroduce them via stray prebuilds.
 - **Listing metadata:** lives in `fastlane/metadata/android/en-US/` (title, short/full description, changelogs, images). Bump a new `changelogs/<versionCode>.txt` each release. Screenshots still need to be added under `images/`.
+- **Build everything from source (no prebuilt AARs):** Expo SDK 56 consumes many modules
+  (expo-router, expo-font, expo-file-system, …) as *precompiled* AARs by default, which F-Droid
+  rejects. `package.json` → `expo.autolinking.buildFromSource: [".*"]` forces every Expo module to
+  compile from source instead. Don't remove it. (Same reason we use react-native-notify-kit over
+  @notifee/react-native, whose core was prebuilt-only.)
 - **Reproducibility:** prefer deterministic builds; avoid pulling remote resources at build time. `expo.modules.updates` (OTA) is disabled and unlinked — keep it that way.
 
 ## File layout
@@ -115,6 +120,8 @@ First run takes longer; subsequent runs are incremental.
 Read versioned Expo docs at https://docs.expo.dev/versions/v56.0.0/ before writing any code.
 
 ## Notifications
-Uses `@notifee/react-native` for fully local scheduled notifications — no Firebase/FCM dependency.
-This keeps the app F-Droid compatible. `expo-task-manager` + `expo-background-fetch` are retained
+Uses `react-native-notify-kit` for fully local scheduled notifications — no Firebase/FCM dependency.
+This keeps the app F-Droid compatible. (It's a drop-in, API-compatible fork of
+`@notifee/react-native` that compiles its native core from source; upstream notifee ships that
+core only as a prebuilt AAR, which F-Droid rejects.) `expo-task-manager` + `expo-background-fetch` are retained
 for background refresh (they use Android WorkManager, which is also FCM-free).

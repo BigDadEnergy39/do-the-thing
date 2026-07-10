@@ -1,0 +1,7 @@
+Now builds entirely from source — a step toward F-Droid.
+
+Replaced the notification engine with react-native-notify-kit, a
+source-built, drop-in replacement for the previous library (whose core
+shipped only as a prebuilt binary). All notification behaviour is
+unchanged: the full daily cadence, deadline reminders, and taps still
+work exactly as before. Also fixed the version shown on the About screen.

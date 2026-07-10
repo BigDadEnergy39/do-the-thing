@@ -1,6 +1,13 @@
 /**
- * Notification service — uses @notifee/react-native for fully local notifications
+ * Notification service — uses react-native-notify-kit for fully local notifications
  * with no Firebase / Google Play Services dependency (F-Droid compatible).
+ *
+ * WHY notify-kit instead of @notifee/react-native: notifee ships its native core
+ * only as a PREBUILT AAR (app/notifee/core), which F-Droid strips during its
+ * source-scan → the build can't resolve it and the app is ineligible for F-Droid.
+ * react-native-notify-kit is a drop-in, API-compatible fork that compiles the core
+ * from source (since 9.2.0), so the whole app builds from source. Import surface and
+ * behavior are unchanged.
  *
  * Background periodic refresh still uses expo-task-manager + expo-background-fetch,
  * both of which use Android WorkManager (FCM-free).
@@ -11,7 +18,7 @@ import notifee, {
   TriggerType,
   RepeatFrequency,
   AuthorizationStatus,
-} from '@notifee/react-native';
+} from 'react-native-notify-kit';
 import { getSetting, setSetting } from '../db/settings';
 import { getCoachText, PERSONA_NUDGE_LEVEL, COMPLETION_ACK_THRESHOLD, HABIT_NUDGE_THRESHOLD } from '../components/CoachText';
 import { localDateStr } from '../utils/date';
