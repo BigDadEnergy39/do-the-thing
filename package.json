@@ -1,9 +1,9 @@
 {
   "name": "dothething",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "main": "index.js",
   "dependencies": {
-    "@notifee/react-native": "^9.1.8",
+    "react-native-notify-kit": "^10.4.0",
     "@react-native-async-storage/async-storage": "^3.1.1",
     "@react-native-community/datetimepicker": "^9.1.0",
     "expo": "~56.0.8",
@@ -28,5 +28,10 @@
     "ios": "expo run:ios",
     "web": "expo start --web"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "autolinking": {
+      "buildFromSource": [".*"]
+    }
+  }
 }

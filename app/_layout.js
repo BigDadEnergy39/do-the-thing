@@ -5,7 +5,7 @@ import { TouchableOpacity, Text, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastProvider } from '../src/components/Toast';
 import { initDb } from '../src/db/schema';
-import notifee, { EventType } from '@notifee/react-native';
+import notifee, { EventType } from 'react-native-notify-kit';
 
 // Anchor the stack at Home so a deep link (or notification) into a sub-route
 // like /review always has Home beneath it — otherwise a cold-start deep link
