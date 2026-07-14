@@ -1,6 +1,6 @@
 {
   "name": "dothething",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "main": "index.js",
   "dependencies": {
     "react-native-notify-kit": "^10.4.0",

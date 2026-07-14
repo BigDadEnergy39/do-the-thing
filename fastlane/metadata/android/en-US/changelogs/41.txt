@@ -1,0 +1,6 @@
+Smaller downloads.
+
+The app is now split into separate builds per device architecture (ABI
+split), so each download only carries the native code your phone actually
+uses instead of bundling every CPU type into one large APK. No feature or
+behaviour changes in this release.

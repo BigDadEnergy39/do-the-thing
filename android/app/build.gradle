@@ -105,8 +105,8 @@ android {
         applicationId 'com.bigdadenergy39.DoTheThing'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.2.0"
+        versionCode 4
+        versionName "1.2.1"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -154,6 +154,33 @@ android {
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+
+    // ── ABI splits (for F-Droid, MR !42617) ──────────────────────────────────
+    // Ship one APK per CPU architecture instead of a single ~93 MB universal
+    // APK bundling every ABI's native libs. The F-Droid maintainer (linsui)
+    // requires this to cut download/storage size.
+    splits {
+        abi {
+            reset()
+            enable true
+            universalApk false
+            include "armeabi-v7a", "arm64-v8a", "x86_64"
+        }
+    }
+
+    // Each per-ABI APK needs a distinct versionCode. F-Droid requires the ABI
+    // digit in the LOWEST position, ordered armeabi-v7a < arm64-v8a < x86_64,
+    // and these MUST match the fdroiddata recipe's VercodeOperation ('%c * 10 + N').
+    // With base versionCode 4: armeabi-v7a → 41, arm64-v8a → 42, x86_64 → 43.
+    applicationVariants.all { variant ->
+        variant.outputs.each { output ->
+            def abiCodes = ["armeabi-v7a": 1, "arm64-v8a": 2, "x86_64": 3]
+            def abi = output.getFilter(com.android.build.OutputFile.ABI)
+            if (abi != null) {
+                output.versionCodeOverride = defaultConfig.versionCode * 10 + abiCodes.get(abi)
+            }
+        }
     }
 }
 
