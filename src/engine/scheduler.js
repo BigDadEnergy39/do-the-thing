@@ -7,6 +7,7 @@ import { getAllTasks, getLastCompletion, updateTask, getTodayCompletedTasks } fr
 import { getTodayHabitCheckin, getHabitStreak } from '../db/habits';
 import { localDateStr, localDateTimeStr, parseLocalDateTime, parseLocalDay } from '../utils/date';
 import { isDue, nextOccurrence, currentOccurrence, addByFreq, normalizeRule, nthWeekdayOfMonth } from './recurrence';
+import { getBands, compareByBand } from './bands';
 
 const TODAY = () => {
   const d = new Date();
@@ -369,9 +370,17 @@ export function buildDailyList() {
     else mainItems.push(item);
   }
 
+  // Today list order is the band model (src/engine/bands.js): Critical → High →
+  // morning → afternoon/any → evening, with window order applied within every
+  // band and timed tasks topping their window block. Boundaries are read from
+  // the user's notification settings once here, then reused for every comparison.
+  const bands = getBands();
+  const byBand = compareByBand(bands);
+  mainItems.sort(byBand);
+  backlogItems.sort(byBand);
+  // Timed goals live in their own always-visible section, not the banded list;
+  // the blended score still orders that section until it's revisited.
   const sortFn = (a, b) => b.score - a.score || a.title.localeCompare(b.title);
-  mainItems.sort(sortFn);
-  backlogItems.sort(sortFn);
   timedGoals.sort(sortFn);
 
   // Sort habits by window order: morning → afternoon → evening → other

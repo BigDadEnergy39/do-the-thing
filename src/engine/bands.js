@@ -96,3 +96,56 @@ export function taskWindow(task, bands) {
   if (due != null) return windowForMinutes(due, bands);
   return task.preferred_time ?? null;
 }
+
+/**
+ * The top-level band an effective priority falls into:
+ *   0 Critical (4) — always at the top of the list
+ *   1 High (3)
+ *   2 everything else (Normal/Low) — split into morning/afternoon/evening by window
+ *
+ * Critical and High are bands of their own; the lower three visual bands
+ * (morning → afternoon → evening) are all this group 2, separated by windowRank.
+ * Escalation (including the 2h/1h timed ramp) raises effectivePriority, so a task
+ * climbing toward its due time moves *up bands*, not just up within one.
+ */
+export function bandIndex(effectivePriority) {
+  if (effectivePriority >= 4) return 0;
+  if (effectivePriority >= 3) return 1;
+  return 2;
+}
+
+/**
+ * The Today-list comparator, curried over the day's band boundaries (compute
+ * `bands` once per build and reuse). Lexicographic — each key is consulted only
+ * to break a tie in the previous one:
+ *
+ *   1. band       — Critical → High → rest
+ *   2. window      — morning → afternoon/any → evening (applies *within* every
+ *                    band, so a Critical morning task sits above a Critical
+ *                    afternoon one)
+ *   3. timed-ness  — within a window, tasks with a clock time come before those
+ *                    without (a timed evening task tops the evening block)
+ *   4. clock       — among timed tasks, earlier due time first
+ *   5. title       — stable, human-predictable final tiebreak (replaces the old
+ *                    alphabetical fallback that was silently deciding the order)
+ */
+export function compareByBand(bands) {
+  return (a, b) => {
+    const bandA = bandIndex(a.effectivePriority);
+    const bandB = bandIndex(b.effectivePriority);
+    if (bandA !== bandB) return bandA - bandB;
+
+    const winA = windowRank(taskWindow(a, bands));
+    const winB = windowRank(taskWindow(b, bands));
+    if (winA !== winB) return winA - winB;
+
+    const dueA = minutesOfDay(a.due_time);
+    const dueB = minutesOfDay(b.due_time);
+    const timedA = dueA != null ? 0 : 1;
+    const timedB = dueB != null ? 0 : 1;
+    if (timedA !== timedB) return timedA - timedB;
+    if (timedA === 0 && dueA !== dueB) return dueA - dueB;
+
+    return a.title.localeCompare(b.title);
+  };
+}
