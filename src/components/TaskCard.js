@@ -146,11 +146,6 @@ export function TaskCard({ task, onComplete, onFollowUp, onPress, onChanged }) {
                 }]}>{task.displayLabel}</Text>
               </View>
             )}
-            {task.duration_intent ? (
-              <View style={styles.durationChip}>
-                <Text style={styles.durationText}>~{task.duration_intent}m</Text>
-              </View>
-            ) : null}
             {task.preferred_time ? (
               <View style={[styles.timeChip, styles[`timeChip_${task.preferred_time}`]]}>
                 <Text style={[styles.timeChipText, styles[`timeChipText_${task.preferred_time}`]]}>
@@ -259,17 +254,6 @@ const styles = StyleSheet.create({
   labelText: {
     fontSize: 11,
     fontWeight: '700',
-  },
-  durationChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    backgroundColor: '#88888822',
-  },
-  durationText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#888',
   },
   timeChip: {
     paddingHorizontal: 8,

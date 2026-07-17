@@ -94,7 +94,6 @@ export default function AddTaskScreen() {
   const [goalMinutes, setGoalMinutes] = useState('30');
   const [goalReset, setGoalReset] = useState('daily');
   const [hasTimer, setHasTimer] = useState(false);
-  const [durationIntent, setDurationIntent] = useState('');
   const [preferredTime, setPreferredTime] = useState(null);
   const [habitWindow, setHabitWindow] = useState('morning');
   const [anchorMode, setAnchorMode] = useState('fixed'); // 'fixed' | 'nth_weekday'
@@ -154,7 +153,6 @@ export default function AddTaskScreen() {
       setGoalMinutes(String(task.goal_minutes ?? 30));
       setGoalReset(task.goal_reset ?? 'daily');
       setHasTimer(!!task.has_timer);
-      setDurationIntent(task.duration_intent ? String(task.duration_intent) : '');
       setPreferredTime(task.preferred_time ?? null);
       setHabitWindow(task.habit_window ?? 'morning');
       if (task.due_reminders) {
@@ -394,7 +392,6 @@ export default function AddTaskScreen() {
       goal_reset: goalReset,
       auto_hide_after_skips: autoHideAfterSkips ? Number(autoHideAfterSkips) : null,
       has_timer: hasTimer,
-      duration_intent: durationIntent ? Number(durationIntent) : null,
       preferred_time: preferredTime ?? null,
       habit_window: taskType === 'habit' ? habitWindow : null,
     };
@@ -1021,22 +1018,6 @@ export default function AddTaskScreen() {
           <Text style={[styles.sublabel, { marginTop: 12 }]}>
             Each day you'll get three options: Kept it, Mostly, or Didn't. Streaks track days you kept it or mostly kept it.
           </Text>
-        </>
-      )}
-
-      {/* Duration intent — available on all task types */}
-      {taskType !== 'timed_goal' && taskType !== 'habit' && (
-        <>
-          <Text style={styles.label}>Estimated time (optional)</Text>
-          <Text style={styles.sublabel}>Soft commitment — shows as "~Xm" on the card. Not tracked, just a reminder.</Text>
-          <TextInput
-            style={styles.input}
-            value={durationIntent}
-            onChangeText={setDurationIntent}
-            keyboardType="numeric"
-            placeholder="e.g. 90"
-            placeholderTextColor="#aaa"
-          />
         </>
       )}
 
