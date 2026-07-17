@@ -7,7 +7,7 @@ import { getAllTasks, getLastCompletion, updateTask, getTodayCompletedTasks } fr
 import { getTodayHabitCheckin, getHabitStreak } from '../db/habits';
 import { localDateStr, localDateTimeStr, parseLocalDateTime, parseLocalDay } from '../utils/date';
 import { isDue, nextOccurrence, currentOccurrence, addByFreq, normalizeRule, nthWeekdayOfMonth } from './recurrence';
-import { getBands, compareByBand } from './bands';
+import { getBands, compareByBand, minutesOfDay } from './bands';
 
 const TODAY = () => {
   const d = new Date();
@@ -49,6 +49,18 @@ function computeUrgencyScore(task, today, overdueDays, daysUntilDue) {
   if (daysUntilDue <= 2) return 75;
   if (daysUntilDue <= 7) return 25;
   return 0;
+}
+
+// Standing intra-day ramp for a timed deadline: how close (in minutes) the due
+// time is forces what *minimum* priority. This is the "escape hatch" the design
+// settled on — but expressed as priority, not a separate sort overlay, so it
+// simply moves the task up bands as its clock nears. Past due (minsUntil <= 0)
+// and within the hour both floor at Critical; within two hours, High. Applied
+// with Math.max so it only ever raises.
+function timedRampFloor(minsUntil) {
+  if (minsUntil <= 60) return 4;   // 1h out, or already past the time -> Critical
+  if (minsUntil <= 120) return 3;  // 2h out -> High
+  return 0;                        // further out -> no floor
 }
 
 // ─── Importance score (user priority, possibly auto-escalated) ────────────────
@@ -330,11 +342,12 @@ export function buildDailyList() {
     // ── Compute effective priority (with auto-escalation) ─────────────────
     let effectivePriority = computeAutoEscalatedPriority(task, today, last);
 
-    // Deadline escalation
-    if (task.task_type === 'deadline' && task.escalate_days_out && daysUntilDue !== null) {
-      if (daysUntilDue < 0) effectivePriority = 4;
-      else if (daysUntilDue <= task.escalate_days_out)
-        effectivePriority = Math.max(effectivePriority, task.escalate_to_priority ?? 3);
+    // Deadline: user-configured "escalate within N days" (date-based ramp).
+    // The overdue case moved to the unconditional floor below — it must fire even
+    // when this setting is off.
+    if (task.task_type === 'deadline' && task.escalate_days_out && daysUntilDue !== null
+        && daysUntilDue >= 0 && daysUntilDue <= task.escalate_days_out) {
+      effectivePriority = Math.max(effectivePriority, task.escalate_to_priority ?? 3);
     }
 
     // Recurring escalation: step up one level per N days the current occurrence
@@ -349,6 +362,25 @@ export function buildDailyList() {
     if (task.task_type === 'date_anchor' && daysUntilDue !== null) {
       if (daysUntilDue <= 7) effectivePriority = Math.min(4, effectivePriority + 2);
       else if (daysUntilDue <= 14) effectivePriority = Math.min(4, effectivePriority + 1);
+    }
+
+    // Timed ramp + overdue floor (deadlines), independent of the N-days setting.
+    // Under the band sort there is no blended urgency score to float a late task
+    // up, so priority itself must carry it. Raises only, never demotes.
+    if (task.task_type === 'deadline') {
+      if (overdueDays > 0) {
+        // Overdue floor: the due date has passed. Always Critical, even if the
+        // per-task escalation setting is off — this is the gap the old blended
+        // score used to paper over (urgency 600 floated it; bands don't).
+        effectivePriority = 4;
+      } else if (task.due_time && daysUntilDue === 0) {
+        const dueMin = minutesOfDay(task.due_time);
+        if (dueMin != null) {
+          const now = new Date();
+          const minsUntil = dueMin - (now.getHours() * 60 + now.getMinutes());
+          effectivePriority = Math.max(effectivePriority, timedRampFloor(minsUntil));
+        }
+      }
     }
 
     // Cap at ceiling
