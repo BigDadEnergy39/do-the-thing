@@ -33,24 +33,6 @@ const toDate = (str) => {
 
 const daysBetween = (a, b) => Math.round((b - a) / 86400000);
 
-// ─── Urgency score (time pressure) ───────────────────────────────────────────
-function computeUrgencyScore(task, today, overdueDays, daysUntilDue) {
-  // Time-specific task today
-  if (task.due_time && daysUntilDue === 0) {
-    const [h, m] = task.due_time.split(':').map(Number);
-    const now = new Date();
-    const hoursUntil = (h * 60 + m - (now.getHours() * 60 + now.getMinutes())) / 60;
-    if (hoursUntil <= 0) return 600; // past the time, highest urgency
-    if (hoursUntil <= 2) return 500;
-    return 400;
-  }
-  if (overdueDays > 0) return 200 + Math.min(overdueDays * 15, 150);
-  if (daysUntilDue === 0) return 150;
-  if (daysUntilDue <= 2) return 75;
-  if (daysUntilDue <= 7) return 25;
-  return 0;
-}
-
 // Standing intra-day ramp for a timed deadline: how close (in minutes) the due
 // time is forces what *minimum* priority. This is the "escape hatch" the design
 // settled on — but expressed as priority, not a separate sort overlay, so it
@@ -62,9 +44,6 @@ function timedRampFloor(minsUntil) {
   if (minsUntil <= 120) return 3;  // 2h out -> High
   return 0;                        // further out -> no floor
 }
-
-// ─── Importance score (user priority, possibly auto-escalated) ────────────────
-const IMPORTANCE = { 4: 300, 3: 200, 2: 100, 1: 50 };
 
 function computeAutoEscalatedPriority(task, today, lastCompletion) {
   if (task.task_type !== 'unscheduled' && task.task_type !== 'timed_goal') {
@@ -386,12 +365,7 @@ export function buildDailyList() {
     // Cap at ceiling
     effectivePriority = Math.min(effectivePriority, task.priority_ceiling ?? 4);
 
-    // ── Two-factor score ──────────────────────────────────────────────────
-    const urgencyScore = computeUrgencyScore(task, today, overdueDays, daysUntilDue) + computeTimeWindowBoost(task);
-    const importanceScore = IMPORTANCE[effectivePriority] ?? 100;
-    const score = urgencyScore + importanceScore;
-
-    const item = { ...task, effectivePriority, score, urgencyScore, importanceScore, overdueDays, daysUntilDue, displayLabel, completedToday: false };
+    const item = { ...task, effectivePriority, overdueDays, daysUntilDue, displayLabel, completedToday: false };
 
     // ── Backlog: Low priority with no near-term time pressure ─────────────
     // The band sort can't tell Low from Normal within a window (both are the
