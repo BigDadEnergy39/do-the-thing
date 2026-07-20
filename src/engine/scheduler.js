@@ -393,8 +393,22 @@ export function buildDailyList() {
 
     const item = { ...task, effectivePriority, score, urgencyScore, importanceScore, overdueDays, daysUntilDue, displayLabel, completedToday: false };
 
-    // ── Backlog: low priority + no time pressure ──────────────────────────
-    if (effectivePriority <= 1 && urgencyScore === 0) {
+    // ── Backlog: Low priority with no near-term time pressure ─────────────
+    // The band sort can't tell Low from Normal within a window (both are the
+    // "everything else" group), so Backlog is what gives "Low priority" a
+    // visible effect: it pulls deprioritized items with nothing pressing about
+    // them into the collapsed section. "Pressing" = overdue, has a clock time, a
+    // date within a week, or a recurring/randomized task that's surfacing only
+    // because it's due now. This is a deliberate change from the old test, which
+    // keyed off an urgency score whose `null <= 2` quirk scored every undated
+    // task as mildly urgent — so a low-priority to-do never reached Backlog.
+    const hasNearTermPressure =
+      overdueDays > 0 ||
+      !!task.due_time ||
+      (daysUntilDue !== null && daysUntilDue <= 7) ||
+      task.task_type === 'recurring' ||
+      task.task_type === 'randomized';
+    if (effectivePriority <= 1 && !hasNearTermPressure) {
       isBacklog = true;
     }
 
