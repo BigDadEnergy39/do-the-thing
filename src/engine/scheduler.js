@@ -7,6 +7,7 @@ import { getAllTasks, getLastCompletion, updateTask, getTodayCompletedTasks } fr
 import { getTodayHabitCheckin, getHabitStreak } from '../db/habits';
 import { localDateStr, localDateTimeStr, parseLocalDateTime, parseLocalDay } from '../utils/date';
 import { isDue, nextOccurrence, currentOccurrence, addByFreq, normalizeRule, nthWeekdayOfMonth } from './recurrence';
+import { getBands, compareByBand, minutesOfDay } from './bands';
 
 const TODAY = () => {
   const d = new Date();
@@ -32,26 +33,17 @@ const toDate = (str) => {
 
 const daysBetween = (a, b) => Math.round((b - a) / 86400000);
 
-// ─── Urgency score (time pressure) ───────────────────────────────────────────
-function computeUrgencyScore(task, today, overdueDays, daysUntilDue) {
-  // Time-specific task today
-  if (task.due_time && daysUntilDue === 0) {
-    const [h, m] = task.due_time.split(':').map(Number);
-    const now = new Date();
-    const hoursUntil = (h * 60 + m - (now.getHours() * 60 + now.getMinutes())) / 60;
-    if (hoursUntil <= 0) return 600; // past the time, highest urgency
-    if (hoursUntil <= 2) return 500;
-    return 400;
-  }
-  if (overdueDays > 0) return 200 + Math.min(overdueDays * 15, 150);
-  if (daysUntilDue === 0) return 150;
-  if (daysUntilDue <= 2) return 75;
-  if (daysUntilDue <= 7) return 25;
-  return 0;
+// Standing intra-day ramp for a timed deadline: how close (in minutes) the due
+// time is forces what *minimum* priority. This is the "escape hatch" the design
+// settled on — but expressed as priority, not a separate sort overlay, so it
+// simply moves the task up bands as its clock nears. Past due (minsUntil <= 0)
+// and within the hour both floor at Critical; within two hours, High. Applied
+// with Math.max so it only ever raises.
+function timedRampFloor(minsUntil) {
+  if (minsUntil <= 60) return 4;   // 1h out, or already past the time -> Critical
+  if (minsUntil <= 120) return 3;  // 2h out -> High
+  return 0;                        // further out -> no floor
 }
-
-// ─── Importance score (user priority, possibly auto-escalated) ────────────────
-const IMPORTANCE = { 4: 300, 3: 200, 2: 100, 1: 50 };
 
 function computeAutoEscalatedPriority(task, today, lastCompletion) {
   if (task.task_type !== 'unscheduled' && task.task_type !== 'timed_goal') {
@@ -329,11 +321,12 @@ export function buildDailyList() {
     // ── Compute effective priority (with auto-escalation) ─────────────────
     let effectivePriority = computeAutoEscalatedPriority(task, today, last);
 
-    // Deadline escalation
-    if (task.task_type === 'deadline' && task.escalate_days_out && daysUntilDue !== null) {
-      if (daysUntilDue < 0) effectivePriority = 4;
-      else if (daysUntilDue <= task.escalate_days_out)
-        effectivePriority = Math.max(effectivePriority, task.escalate_to_priority ?? 3);
+    // Deadline: user-configured "escalate within N days" (date-based ramp).
+    // The overdue case moved to the unconditional floor below — it must fire even
+    // when this setting is off.
+    if (task.task_type === 'deadline' && task.escalate_days_out && daysUntilDue !== null
+        && daysUntilDue >= 0 && daysUntilDue <= task.escalate_days_out) {
+      effectivePriority = Math.max(effectivePriority, task.escalate_to_priority ?? 3);
     }
 
     // Recurring escalation: step up one level per N days the current occurrence
@@ -350,18 +343,46 @@ export function buildDailyList() {
       else if (daysUntilDue <= 14) effectivePriority = Math.min(4, effectivePriority + 1);
     }
 
+    // Timed ramp + overdue floor (deadlines), independent of the N-days setting.
+    // Under the band sort there is no blended urgency score to float a late task
+    // up, so priority itself must carry it. Raises only, never demotes.
+    if (task.task_type === 'deadline') {
+      if (overdueDays > 0) {
+        // Overdue floor: the due date has passed. Always Critical, even if the
+        // per-task escalation setting is off — this is the gap the old blended
+        // score used to paper over (urgency 600 floated it; bands don't).
+        effectivePriority = 4;
+      } else if (task.due_time && daysUntilDue === 0) {
+        const dueMin = minutesOfDay(task.due_time);
+        if (dueMin != null) {
+          const now = new Date();
+          const minsUntil = dueMin - (now.getHours() * 60 + now.getMinutes());
+          effectivePriority = Math.max(effectivePriority, timedRampFloor(minsUntil));
+        }
+      }
+    }
+
     // Cap at ceiling
     effectivePriority = Math.min(effectivePriority, task.priority_ceiling ?? 4);
 
-    // ── Two-factor score ──────────────────────────────────────────────────
-    const urgencyScore = computeUrgencyScore(task, today, overdueDays, daysUntilDue) + computeTimeWindowBoost(task);
-    const importanceScore = IMPORTANCE[effectivePriority] ?? 100;
-    const score = urgencyScore + importanceScore;
+    const item = { ...task, effectivePriority, overdueDays, daysUntilDue, displayLabel, completedToday: false };
 
-    const item = { ...task, effectivePriority, score, urgencyScore, importanceScore, overdueDays, daysUntilDue, displayLabel, completedToday: false };
-
-    // ── Backlog: low priority + no time pressure ──────────────────────────
-    if (effectivePriority <= 1 && urgencyScore === 0) {
+    // ── Backlog: Low priority with no near-term time pressure ─────────────
+    // The band sort can't tell Low from Normal within a window (both are the
+    // "everything else" group), so Backlog is what gives "Low priority" a
+    // visible effect: it pulls deprioritized items with nothing pressing about
+    // them into the collapsed section. "Pressing" = overdue, has a clock time, a
+    // date within a week, or a recurring/randomized task that's surfacing only
+    // because it's due now. This is a deliberate change from the old test, which
+    // keyed off an urgency score whose `null <= 2` quirk scored every undated
+    // task as mildly urgent — so a low-priority to-do never reached Backlog.
+    const hasNearTermPressure =
+      overdueDays > 0 ||
+      !!task.due_time ||
+      (daysUntilDue !== null && daysUntilDue <= 7) ||
+      task.task_type === 'recurring' ||
+      task.task_type === 'randomized';
+    if (effectivePriority <= 1 && !hasNearTermPressure) {
       isBacklog = true;
     }
 
@@ -369,9 +390,17 @@ export function buildDailyList() {
     else mainItems.push(item);
   }
 
+  // Today list order is the band model (src/engine/bands.js): Critical → High →
+  // morning → afternoon/any → evening, with window order applied within every
+  // band and timed tasks topping their window block. Boundaries are read from
+  // the user's notification settings once here, then reused for every comparison.
+  const bands = getBands();
+  const byBand = compareByBand(bands);
+  mainItems.sort(byBand);
+  backlogItems.sort(byBand);
+  // Timed goals live in their own always-visible section, not the banded list;
+  // the blended score still orders that section until it's revisited.
   const sortFn = (a, b) => b.score - a.score || a.title.localeCompare(b.title);
-  mainItems.sort(sortFn);
-  backlogItems.sort(sortFn);
   timedGoals.sort(sortFn);
 
   // Sort habits by window order: morning → afternoon → evening → other

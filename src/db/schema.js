@@ -113,7 +113,11 @@ function initDbSync(db) {
     `ALTER TABLE tasks ADD COLUMN last_skip_date TEXT`,
     // Timer support: any task type can have an optional timer + time goal
     `ALTER TABLE tasks ADD COLUMN has_timer INTEGER NOT NULL DEFAULT 0`,
-    // Duration intent: soft "I plan to spend ~N minutes on this" label
+    // Duration intent: soft "I plan to spend ~N minutes on this" label.
+    // DEPRECATED — the "estimated time" feature was removed; nothing reads or
+    // writes this. The column stays on purpose: these migrations are append-only
+    // and SQLite only gained DROP COLUMN in 3.35, so a destructive migration here
+    // would risk existing installs and destroy any stored values for no benefit.
     `ALTER TABLE tasks ADD COLUMN duration_intent INTEGER`,
     // Preferred time of day: 'morning' | 'afternoon' | 'evening' | null
     `ALTER TABLE tasks ADD COLUMN preferred_time TEXT`,

@@ -94,7 +94,6 @@ export default function AddTaskScreen() {
   const [goalMinutes, setGoalMinutes] = useState('30');
   const [goalReset, setGoalReset] = useState('daily');
   const [hasTimer, setHasTimer] = useState(false);
-  const [durationIntent, setDurationIntent] = useState('');
   const [preferredTime, setPreferredTime] = useState(null);
   const [habitWindow, setHabitWindow] = useState('morning');
   const [anchorMode, setAnchorMode] = useState('fixed'); // 'fixed' | 'nth_weekday'
@@ -154,7 +153,6 @@ export default function AddTaskScreen() {
       setGoalMinutes(String(task.goal_minutes ?? 30));
       setGoalReset(task.goal_reset ?? 'daily');
       setHasTimer(!!task.has_timer);
-      setDurationIntent(task.duration_intent ? String(task.duration_intent) : '');
       setPreferredTime(task.preferred_time ?? null);
       setHabitWindow(task.habit_window ?? 'morning');
       if (task.due_reminders) {
@@ -394,7 +392,6 @@ export default function AddTaskScreen() {
       goal_reset: goalReset,
       auto_hide_after_skips: autoHideAfterSkips ? Number(autoHideAfterSkips) : null,
       has_timer: hasTimer,
-      duration_intent: durationIntent ? Number(durationIntent) : null,
       preferred_time: preferredTime ?? null,
       habit_window: taskType === 'habit' ? habitWindow : null,
     };
@@ -515,6 +512,9 @@ export default function AddTaskScreen() {
               <PriorityRow value={priorityCeiling} onChange={setPriorityCeiling} options={[1,2,3,4]} />
             </>
           )}
+          {taskType === 'unscheduled' && (
+            <TimeOfDayField value={preferredTime} onChange={setPreferredTime} />
+          )}
         </>
       )}
 
@@ -579,6 +579,14 @@ export default function AddTaskScreen() {
               <Text style={styles.label}>Escalate to priority</Text>
               <PriorityRow value={escalatePriority} onChange={setEscalatePriority} options={[2,3,4]} />
             </>
+          )}
+          {dueTime ? (
+            <>
+              <Text style={styles.label}>Time of Day</Text>
+              <Text style={styles.sublabel}>Set automatically from the due time ({dueTime}). Clear the due time to choose a window manually.</Text>
+            </>
+          ) : (
+            <TimeOfDayField value={preferredTime} onChange={setPreferredTime} />
           )}
         </>
       )}
@@ -774,26 +782,7 @@ export default function AddTaskScreen() {
           <Text style={styles.label}>Auto-hide after N skips (optional)</Text>
           <Text style={styles.sublabel}>If skipped this many times in a row, steps back until next occurrence. Leave blank to always show.</Text>
           <TextInput style={styles.input} value={autoHideAfterSkips} onChangeText={setAutoHideAfterSkips} keyboardType="numeric" placeholder="e.g. 3" placeholderTextColor="#aaa" />
-          <Text style={styles.label}>Time of Day (optional)</Text>
-          <Text style={styles.sublabel}>Floats this task to the top of your list during the right window.</Text>
-          <View style={styles.segmentRow}>
-            {[
-              { key: null,          label: 'Any time'  },
-              { key: 'morning',     label: 'Morning'   },
-              { key: 'afternoon',   label: 'Afternoon' },
-              { key: 'evening',     label: 'Evening'   },
-            ].map(opt => (
-              <TouchableOpacity
-                key={String(opt.key)}
-                style={[styles.segBtn, preferredTime === opt.key && styles.segBtnActive]}
-                onPress={() => setPreferredTime(opt.key)}
-              >
-                <Text style={[styles.segText, preferredTime === opt.key && styles.segTextActive]}>
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <TimeOfDayField value={preferredTime} onChange={setPreferredTime} />
 
           <SwitchRow
             label="Track time"
@@ -829,6 +818,7 @@ export default function AddTaskScreen() {
           <SwitchRow label="Persist if missed" desc="Stays on list past the scheduled date" value={randPersistent} onChange={setRandPersistent} />
           <Text style={styles.label}>Auto-hide after N skips (optional)</Text>
           <TextInput style={styles.input} value={autoHideAfterSkips} onChangeText={setAutoHideAfterSkips} keyboardType="numeric" placeholder="e.g. 3" placeholderTextColor="#aaa" />
+          <TimeOfDayField value={preferredTime} onChange={setPreferredTime} />
         </>
       )}
 
@@ -1024,22 +1014,6 @@ export default function AddTaskScreen() {
         </>
       )}
 
-      {/* Duration intent — available on all task types */}
-      {taskType !== 'timed_goal' && taskType !== 'habit' && (
-        <>
-          <Text style={styles.label}>Estimated time (optional)</Text>
-          <Text style={styles.sublabel}>Soft commitment — shows as "~Xm" on the card. Not tracked, just a reminder.</Text>
-          <TextInput
-            style={styles.input}
-            value={durationIntent}
-            onChangeText={setDurationIntent}
-            keyboardType="numeric"
-            placeholder="e.g. 90"
-            placeholderTextColor="#aaa"
-          />
-        </>
-      )}
-
       <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
         <Text style={styles.saveBtnText}>{isEditing ? 'Save Changes' : 'Add Task'}</Text>
       </TouchableOpacity>
@@ -1188,6 +1162,40 @@ export default function AddTaskScreen() {
       </Modal>
     </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+const TIME_OF_DAY_OPTIONS = [
+  { key: null,        label: 'Any time'  },
+  { key: 'morning',   label: 'Morning'   },
+  { key: 'afternoon', label: 'Afternoon' },
+  { key: 'evening',   label: 'Evening'   },
+];
+
+// Time-of-day picker shared by every schedulable type (To-Do, Recurring,
+// Randomized, and Deadlines without a due time). "Any time" (null) sorts with
+// the afternoon band — see src/engine/bands.js. A Deadline with a due time does
+// not render this: the due time already determines its band, so the two can't
+// be set into conflict from the form.
+function TimeOfDayField({ value, onChange }) {
+  return (
+    <>
+      <Text style={styles.label}>Time of Day (optional)</Text>
+      <Text style={styles.sublabel}>Groups this task into its morning, afternoon, or evening band on the Today list.</Text>
+      <View style={styles.segmentRow}>
+        {TIME_OF_DAY_OPTIONS.map(opt => (
+          <TouchableOpacity
+            key={String(opt.key)}
+            style={[styles.segBtn, value === opt.key && styles.segBtnActive]}
+            onPress={() => onChange(opt.key)}
+          >
+            <Text style={[styles.segText, value === opt.key && styles.segTextActive]}>
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </>
   );
 }
 

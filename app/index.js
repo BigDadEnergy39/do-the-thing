@@ -75,7 +75,7 @@ export default function TodayScreen() {
         rand_min_days: null, rand_max_days: null, rand_next_date: null, rand_persistent: 0,
         anchor_date: null, anchor_label: null,
         goal_minutes: null, goal_reset: 'daily',
-        auto_hide_after_skips: null, duration_intent: null,
+        auto_hide_after_skips: null,
         preferred_time: followUpTask.preferred_time ?? null,
         habit_window: null,
       });
