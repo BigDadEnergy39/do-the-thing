@@ -33,8 +33,9 @@ export function createTask(task) {
       anchor_date, anchor_year, anchor_label,
       goal_minutes, goal_reset,
       notification_config, auto_escalate_days, auto_hide_after_skips,
-      has_timer, duration_intent, preferred_time, habit_window, snooze_until, anchor_nth_rule, due_reminders
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      has_timer, duration_intent, preferred_time, habit_window, snooze_until, anchor_nth_rule, due_reminders,
+      streak_target, streak_mode, streak_success, streak_started_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       task.title,
       task.notes ?? null,
@@ -70,6 +71,10 @@ export function createTask(task) {
       task.snooze_until ?? null,
       task.anchor_nth_rule ?? null,
       task.due_reminders ? JSON.stringify(task.due_reminders) : null,
+      task.streak_target ?? null,
+      task.streak_mode ?? null,
+      task.streak_success ?? null,
+      task.streak_started_at ?? null,
     ]
   );
   return result.lastInsertRowId;
@@ -88,6 +93,7 @@ export function updateTask(id, fields) {
     'skip_count','last_skip_date','is_active',
     'has_timer','duration_intent','preferred_time','habit_window',
     'anchor_nth_rule','snooze_until','task_type','due_reminders',
+    'streak_target','streak_mode','streak_success','streak_started_at','streak_dismissed',
   ];
   const keys = Object.keys(fields).filter(k => allowed.includes(k));
   if (!keys.length) return;

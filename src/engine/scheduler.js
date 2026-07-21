@@ -4,7 +4,7 @@
  */
 
 import { getAllTasks, getLastCompletion, updateTask, getTodayCompletedTasks } from '../db/tasks';
-import { getTodayHabitCheckin, getHabitStreak } from '../db/habits';
+import { getTodayHabitCheckin, getHabitStreak, getHabitTargetProgress } from '../db/habits';
 import { localDateStr, localDateTimeStr, parseLocalDateTime, parseLocalDay } from '../utils/date';
 import { isDue, nextOccurrence, currentOccurrence, addByFreq, normalizeRule, nthWeekdayOfMonth } from './recurrence';
 import { getBands, compareByBand, minutesOfDay } from './bands';
@@ -197,9 +197,12 @@ export function buildDailyList() {
 
     // ── Habits: always show, grouped by window ────────────────────────────
     if (task.task_type === 'habit') {
+      // A finished streak goal the user dismissed drops off Today for good.
+      if (task.streak_dismissed) continue;
       const checkin = getTodayHabitCheckin(task.id, task.habit_window);
       const { streak } = getHabitStreak(task.id);
-      habits.push({ ...task, checkinResponse: checkin?.response ?? null, streak });
+      const targetProgress = getHabitTargetProgress(task);
+      habits.push({ ...task, checkinResponse: checkin?.response ?? null, streak, targetProgress });
       continue;
     }
 

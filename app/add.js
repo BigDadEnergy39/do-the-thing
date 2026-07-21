@@ -96,6 +96,14 @@ export default function AddTaskScreen() {
   const [hasTimer, setHasTimer] = useState(false);
   const [preferredTime, setPreferredTime] = useState(null);
   const [habitWindow, setHabitWindow] = useState('morning');
+  // Habit streak target: 'open' (no target, legacy 🔥), 'tally' (count over a
+  // fixed window), or 'consecutive' (N in a row, resets on a miss).
+  const [streakMode, setStreakMode] = useState('open');
+  const [streakTargetDays, setStreakTargetDays] = useState('30');
+  const [streakSuccess, setStreakSuccess] = useState('kept_mostly'); // 'kept' | 'kept_mostly'
+  // What the task carried when editing, so we can keep the tally window anchor
+  // stable unless the mode actually changes: { mode, started_at } | null.
+  const [loadedStreak, setLoadedStreak] = useState(null);
   const [anchorMode, setAnchorMode] = useState('fixed'); // 'fixed' | 'nth_weekday'
   const [anchorNthRule, setAnchorNthRule] = useState({ n: 2, weekday: 0, month: 5 });
   const [dueReminders, setDueReminders] = useState([]); // [{id, amount, unit}]
@@ -155,6 +163,12 @@ export default function AddTaskScreen() {
       setHasTimer(!!task.has_timer);
       setPreferredTime(task.preferred_time ?? null);
       setHabitWindow(task.habit_window ?? 'morning');
+      setStreakMode(task.streak_target ? (task.streak_mode ?? 'consecutive') : 'open');
+      if (task.streak_target) setStreakTargetDays(String(task.streak_target));
+      setStreakSuccess(task.streak_success ?? 'kept_mostly');
+      setLoadedStreak(task.streak_target
+        ? { mode: task.streak_mode ?? 'consecutive', started_at: task.streak_started_at }
+        : null);
       if (task.due_reminders) {
         try {
           const loaded = typeof task.due_reminders === 'string' ? JSON.parse(task.due_reminders) : task.due_reminders;
@@ -360,6 +374,26 @@ export default function AddTaskScreen() {
       ? advanceRandomizedTask({ rand_min_days: Number(randMin), rand_max_days: Number(randMax) })
       : null;
 
+    // Habit streak target: validate the day count and resolve the window anchor.
+    const hasStreakTarget = taskType === 'habit' && streakMode !== 'open';
+    if (hasStreakTarget) {
+      const days = Number(streakTargetDays);
+      if (!Number.isInteger(days) || days < 1) {
+        Alert.alert('Check the target', 'Enter a whole number of days (1 or more) for the streak goal.');
+        return;
+      }
+    }
+    // Anchor the tally window to when the target was set. Keep the existing
+    // anchor when editing without changing the mode; otherwise start today so an
+    // old habit doesn't begin mid-window (consecutive ignores this field).
+    const now = new Date();
+    const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const streakStart = hasStreakTarget
+      ? (loadedStreak && loadedStreak.mode === streakMode && loadedStreak.started_at
+          ? loadedStreak.started_at
+          : localToday)
+      : null;
+
     const taskData = {
       title: title.trim(),
       notes: notes.trim() || null,
@@ -394,6 +428,10 @@ export default function AddTaskScreen() {
       has_timer: hasTimer,
       preferred_time: preferredTime ?? null,
       habit_window: taskType === 'habit' ? habitWindow : null,
+      streak_target:     hasStreakTarget ? Number(streakTargetDays) : null,
+      streak_mode:       hasStreakTarget ? streakMode : null,
+      streak_success:    hasStreakTarget ? streakSuccess : null,
+      streak_started_at: streakStart,
     };
 
     if (taskType === 'date_anchor') {
@@ -1009,8 +1047,62 @@ export default function AddTaskScreen() {
             ))}
           </View>
           <Text style={[styles.sublabel, { marginTop: 12 }]}>
-            Each day you'll get three options: Kept it, Mostly, or Didn't. Streaks track days you kept it or mostly kept it.
+            Each day you'll get three options: Kept it, Mostly, or Didn't.
           </Text>
+
+          <Text style={[styles.label, { marginTop: 16 }]}>Streak Goal</Text>
+          <Text style={styles.sublabel}>Set a target to work toward, or keep it open-ended.</Text>
+          {[
+            { key: 'open',        title: 'Open-ended',       desc: 'No target — just track your 🔥 streak as it grows.' },
+            { key: 'tally',       title: 'Tally over N days', desc: 'Count successes over a fixed window (e.g. 18 of 30 days). A miss doesn’t reset it.' },
+            { key: 'consecutive', title: 'N days in a row',   desc: 'Build a run of successes. A miss starts you back at zero.' },
+          ].map(opt => (
+            <TouchableOpacity
+              key={opt.key}
+              style={[styles.modalOption, streakMode === opt.key && styles.modalOptionSelected]}
+              onPress={() => setStreakMode(opt.key)}
+            >
+              <Text style={styles.modalOptTitle}>{opt.title}</Text>
+              <Text style={styles.modalOptDesc}>{opt.desc}</Text>
+            </TouchableOpacity>
+          ))}
+
+          {streakMode !== 'open' && (
+            <>
+              <Text style={styles.label}>Target (days)</Text>
+              <Text style={styles.sublabel}>
+                {streakMode === 'tally'
+                  ? 'How long the window runs. The card shows successes over days elapsed.'
+                  : 'How many successes in a row to finish the goal.'}
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={streakTargetDays}
+                onChangeText={setStreakTargetDays}
+                keyboardType="numeric"
+                placeholder="30"
+                placeholderTextColor="#aaa"
+              />
+
+              <Text style={styles.label}>What counts as success?</Text>
+              <View style={styles.segmentRow}>
+                {[
+                  { key: 'kept',        label: 'Kept it only' },
+                  { key: 'kept_mostly', label: 'Kept it + Mostly' },
+                ].map(opt => (
+                  <TouchableOpacity
+                    key={opt.key}
+                    style={[styles.segBtn, streakSuccess === opt.key && styles.segBtnActive]}
+                    onPress={() => setStreakSuccess(opt.key)}
+                  >
+                    <Text style={[styles.segText, streakSuccess === opt.key && styles.segTextActive]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
         </>
       )}
 

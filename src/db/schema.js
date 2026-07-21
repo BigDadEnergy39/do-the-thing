@@ -137,6 +137,28 @@ function initDbSync(db) {
     // occurrence is overdue, capped at priority_ceiling. Resets each occurrence.
     // null → no escalation (preserves existing recurring tasks' behavior).
     `ALTER TABLE tasks ADD COLUMN recur_escalate_days INTEGER`,
+    // ── Habit streak targets ──────────────────────────────────────────────
+    // The goal length. null → open-ended habit (legacy behavior: 🔥 streak
+    // counts up forever, no target). >0 → a target of this many days.
+    `ALTER TABLE tasks ADD COLUMN streak_target INTEGER`,
+    // How the target is measured (only meaningful when streak_target is set):
+    //   'tally'       → count successes over a fixed window of streak_target
+    //                   days from streak_started_at; misses don't reset.
+    //   'consecutive' → count successes in a row; any real miss resets to 0.
+    `ALTER TABLE tasks ADD COLUMN streak_mode TEXT`,
+    // What counts as a success for the target:
+    //   'kept'        → only "Kept it"
+    //   'kept_mostly' → "Kept it" OR "Mostly"
+    // null is treated as 'kept_mostly' to preserve legacy 🔥 streak behavior.
+    `ALTER TABLE tasks ADD COLUMN streak_success TEXT`,
+    // Local anchor (YYYY-MM-DD) for the target window. Set when a target is
+    // first applied — NOT necessarily created_at, so adding a target to an old
+    // habit starts the clock now rather than mid-window.
+    `ALTER TABLE tasks ADD COLUMN streak_started_at TEXT`,
+    // Once a target is reached (or a tally window ends) the finished card stays
+    // on Today showing its result until the user dismisses it; then this → 1
+    // and the scheduler drops it from the list.
+    `ALTER TABLE tasks ADD COLUMN streak_dismissed INTEGER NOT NULL DEFAULT 0`,
   ];
   for (const sql of migrations) {
     try { db.execSync(sql); } catch (_) { /* column already exists */ }

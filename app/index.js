@@ -179,6 +179,7 @@ export default function TodayScreen() {
                 task={item}
                 checkinResponse={item.checkinResponse}
                 streak={item.streak}
+                targetProgress={item.targetProgress}
                 onCheckin={refresh}
                 onPress={(t) => router.push(`/task/${t.id}`)}
               />
