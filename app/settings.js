@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, Modal, Switch, KeyboardAvoidingView, Platform,
+  TextInput, Alert, Modal, Switch, KeyboardAvoidingView, Platform, Keyboard, BackHandler,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { getAllCategories, createCategory, updateCategory, deleteCategory } from '../src/db/categories';
@@ -114,7 +114,7 @@ export default function SettingsScreen() {
   const handleImport = () => {
     Alert.alert(
       'Import Backup',
-      'This will replace ALL current tasks, categories, and settings with the backup file. This cannot be undone.',
+      'This will replace ALL current tasks, locations, and settings with the backup file. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -233,25 +233,49 @@ export default function SettingsScreen() {
   const openAdd = () => { setEditingCat(null); setCatName(''); setCatColor(PRESET_COLORS[0]); setCatModalVisible(true); };
   const openEdit = (cat) => { setEditingCat(cat); setCatName(cat.name); setCatColor(cat.color); setCatModalVisible(true); };
 
+  // On the new architecture (Fabric), toggling a transparent <Modal>'s `visible`
+  // to false doesn't reliably tear down its native window — logcat showed the
+  // keyboard hiding cleanly on save, yet the modal's scrim stayed stuck and
+  // flickering (a ghost overlay you couldn't dismiss). The fix is to *unmount*
+  // the whole <Modal> (it's conditionally rendered below on catModalVisible)
+  // rather than just flip `visible`. We still dismiss the keyboard here so it
+  // doesn't linger over the Settings screen after the sheet is gone.
+  const closeCatModal = () => {
+    Keyboard.dismiss();
+    setCatModalVisible(false);
+  };
+
   const handleSaveCat = () => {
     if (!catName.trim()) return;
     if (editingCat) updateCategory(editingCat.id, { name: catName.trim(), color: catColor });
     else createCategory(catName.trim(), catColor);
-    setCatModalVisible(false);
+    closeCatModal();
     refresh();
   };
 
   const handleDeleteCat = (cat) => {
-    Alert.alert('Delete Category', `Delete "${cat.name}"?`, [
+    Alert.alert('Delete Location', `Delete "${cat.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => { deleteCategory(cat.id); refresh(); } },
     ]);
   };
 
+  // The location editor is a plain in-screen overlay (not an RN <Modal>), so the
+  // hardware back button isn't handled for us — wire it up manually to close it.
+  useEffect(() => {
+    if (!catModalVisible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeCatModal();
+      return true; // consume the press so it doesn't also pop the Settings screen
+    });
+    return () => sub.remove();
+  }, [catModalVisible]);
+
   const intensity = parseInt(settings.notification_intensity ?? '3', 10);
   const persona = settings.coach_persona ?? 'coach';
 
   return (
+    <View style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
 
       {/* ── Manage Tasks ── */}
@@ -353,9 +377,9 @@ export default function SettingsScreen() {
         />
       </View>
 
-      {/* ── Categories ── */}
-      <Text style={[styles.sectionHeader, styles.sectionSpacing]}>Categories</Text>
-      <Text style={styles.sectionDesc}>Organize your tasks by category.</Text>
+      {/* ── Locations ── */}
+      <Text style={[styles.sectionHeader, styles.sectionSpacing]}>Locations</Text>
+      <Text style={styles.sectionDesc}>Tag tasks by where you can do them, then filter your day by location on the Today screen.</Text>
 
       {categories.map(cat => (
         <View key={cat.id} style={styles.catRow}>
@@ -370,7 +394,7 @@ export default function SettingsScreen() {
         </View>
       ))}
       <TouchableOpacity style={styles.addCatBtn} onPress={openAdd}>
-        <Text style={styles.addCatBtnText}>+ Add Category</Text>
+        <Text style={styles.addCatBtnText}>+ Add Location</Text>
       </TouchableOpacity>
 
       {/* ── Backup & Restore ── */}
@@ -478,41 +502,7 @@ export default function SettingsScreen() {
         </Text>
       </View>
 
-      {/* Category modal */}
-      <Modal visible={catModalVisible} transparent animationType="slide">
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>{editingCat ? 'Edit Category' : 'New Category'}</Text>
-            <Text style={styles.fieldLabel}>Name</Text>
-            <TextInput
-              style={styles.input}
-              value={catName}
-              onChangeText={setCatName}
-              placeholder="e.g. Health"
-              placeholderTextColor="#aaa"
-              autoFocus
-            />
-            <Text style={styles.fieldLabel}>Color</Text>
-            <View style={styles.colorRow}>
-              {PRESET_COLORS.map(c => (
-                <TouchableOpacity
-                  key={c}
-                  style={[styles.colorSwatch, { backgroundColor: c }, catColor === c && styles.colorSwatchSelected]}
-                  onPress={() => setCatColor(c)}
-                />
-              ))}
-            </View>
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveCat}>
-              <Text style={styles.saveBtnText}>{editingCat ? 'Save' : 'Add'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setCatModalVisible(false)}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      {/* Location editor overlay lives OUTSIDE the ScrollView — see after it. */}
 
       {/* Restore-from-list modal (no TextInput, so no KeyboardAvoidingView needed) */}
       <Modal visible={restoreVisible} transparent animationType="slide" onRequestClose={() => setRestoreVisible(false)}>
@@ -554,6 +544,50 @@ export default function SettingsScreen() {
         </View>
       </Modal>
     </ScrollView>
+
+    {/* Location editor as an in-screen OVERLAY, not an RN <Modal>. On the new
+        architecture a transparent <Modal> could leave a stuck, flickering ghost
+        window on Android that prop/mount tweaks never fixed; a plain absolutely-
+        positioned View has no separate native window, so it can't ghost. It's a
+        sibling AFTER the ScrollView so it paints on top; back is handled above. */}
+    {catModalVisible && (
+      <KeyboardAvoidingView
+        style={StyleSheet.absoluteFill}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>{editingCat ? 'Edit Location' : 'New Location'}</Text>
+            <Text style={styles.fieldLabel}>Name</Text>
+            <TextInput
+              style={styles.input}
+              value={catName}
+              onChangeText={setCatName}
+              placeholder="e.g. Home"
+              placeholderTextColor="#aaa"
+              autoFocus
+            />
+            <Text style={styles.fieldLabel}>Color</Text>
+            <View style={styles.colorRow}>
+              {PRESET_COLORS.map(c => (
+                <TouchableOpacity
+                  key={c}
+                  style={[styles.colorSwatch, { backgroundColor: c }, catColor === c && styles.colorSwatchSelected]}
+                  onPress={() => setCatColor(c)}
+                />
+              ))}
+            </View>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveCat}>
+              <Text style={styles.saveBtnText}>{editingCat ? 'Save' : 'Add'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={closeCatModal}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    )}
+    </View>
   );
 }
 
