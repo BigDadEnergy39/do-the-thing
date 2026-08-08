@@ -164,20 +164,20 @@ function initDbSync(db) {
     try { db.execSync(sql); } catch (_) { /* column already exists */ }
   }
 
-  // Seed default locations if none exist.
-  // These are *contexts* (where/how you can act), not life-domains — the tag
-  // drives the Today location filter ("hide tasks I can't do here"). We do NOT
-  // seed an "Anywhere" location on purpose: a task doable anywhere is left
-  // untagged (null category_id), which the filter always shows. A real
-  // "Anywhere" row would instead be hidden under every other location.
+  // Seed default categories if none exist.
+  // Categories are *life-domains* (what area of life this serves). "Where/how
+  // you can act" is a separate, orthogonal axis (the locations table) — the two
+  // are deliberately independent. A task with no category is simply untagged
+  // (null category_id), which every filter treats as always-visible.
   const count = db.getFirstSync('SELECT COUNT(*) as n FROM categories');
   if (count.n === 0) {
     db.execSync(`
       INSERT INTO categories (name, color, icon, sort_order) VALUES
-        ('Home', '#27ae60', 'home', 0),
-        ('Office', '#2980b9', 'briefcase', 1),
-        ('Errands', '#f39c12', 'cart', 2),
-        ('Phone', '#9b59b6', 'call', 3);
+        ('Health', '#e74c3c', 'heart', 0),
+        ('Household', '#f39c12', 'home', 1),
+        ('Relationships', '#9b59b6', 'people', 2),
+        ('Work', '#2980b9', 'briefcase', 3),
+        ('Personal', '#27ae60', 'person', 4);
     `);
   }
 }

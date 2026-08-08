@@ -524,11 +524,9 @@ export default function AddTaskScreen() {
         </>
       )}
 
-      <Text style={styles.label}>Location</Text>
+      <Text style={styles.label}>Category</Text>
       <TouchableOpacity style={styles.pickerBtn} onPress={() => setShowCatModal(true)}>
-        {/* "Anywhere" = untagged (null). The Today filter always shows untagged
-            tasks, so this reads as "doable in any location" rather than "unset". */}
-        <Text style={styles.pickerBtnTitle}>{selectedCategory?.name ?? 'Anywhere'}</Text>
+        <Text style={styles.pickerBtnTitle}>{selectedCategory?.name ?? 'None'}</Text>
         <Text style={styles.chevron}>›</Text>
       </TouchableOpacity>
 
@@ -1238,9 +1236,9 @@ export default function AddTaskScreen() {
       <Modal visible={showCatModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>Location</Text>
+            <Text style={styles.modalTitle}>Category</Text>
             <TouchableOpacity style={[styles.modalOption, !categoryId && styles.modalOptionSelected]} onPress={() => { setCategoryId(null); setShowCatModal(false); }}>
-              <Text style={styles.modalOptTitle}>Anywhere</Text>
+              <Text style={styles.modalOptTitle}>None</Text>
             </TouchableOpacity>
             {categories.map(c => (
               <TouchableOpacity key={c.id} style={[styles.modalOption, categoryId === c.id && styles.modalOptionSelected]} onPress={() => { setCategoryId(c.id); setShowCatModal(false); }}>

@@ -29,33 +29,33 @@ export default function TodayScreen() {
   const [followUpTask, setFollowUpTask] = useState(null);
   const completePendingRef = useRef(null);
 
-  // ── Location filter (view-only) ──────────────────────────────────────────
-  const { categories: locations } = useCategories();
-  const [filterLocId, setFilterLocId] = useState(null);
+  // ── Category filter (view-only) ──────────────────────────────────────────
+  const { categories } = useCategories();
+  const [filterCatId, setFilterCatId] = useState(null);
   const filterDayRef = useRef(null);
 
   // Auto-clear the filter on a new day so you can never wake up silently
   // filtered and think tasks vanished. Cold start clears it too, since this is
   // in-memory session state (the agreed "sticky within session" behavior).
   useFocusEffect(useCallback(() => {
-    if (filterLocId != null && filterDayRef.current !== localDateStr()) {
-      setFilterLocId(null);
+    if (filterCatId != null && filterDayRef.current !== localDateStr()) {
+      setFilterCatId(null);
     }
-  }, [filterLocId]));
+  }, [filterCatId]));
 
   const selectFilter = (id) => {
-    setFilterLocId(prev => {
+    setFilterCatId(prev => {
       const next = prev === id ? null : id;   // re-tapping the active chip clears
       filterDayRef.current = next == null ? null : localDateStr();
       return next;
     });
   };
 
-  // Keep tasks tagged with the selected location AND untagged ("Anywhere")
-  // tasks; hide only tasks tagged to a *different* place. Coach counts below
-  // stay on the UNFILTERED lists — filtering must never change what the coach
-  // reports (protects the wrap-up tier denominator).
-  const matchesLoc = (t) => filterLocId == null || t.category_id == null || t.category_id === filterLocId;
+  // Keep tasks tagged with the selected category AND untagged tasks; hide only
+  // tasks tagged to a *different* category. Coach counts below stay on the
+  // UNFILTERED lists — filtering must never change what the coach reports
+  // (protects the wrap-up tier denominator).
+  const matchesCat = (t) => filterCatId == null || t.category_id == null || t.category_id === filterCatId;
 
   const persona = getSetting('coach_persona') ?? 'coach';
   const coach = getCoachText(persona);
@@ -64,11 +64,11 @@ export default function TodayScreen() {
   const visibleBacklog = backlogItems.filter(i => !completedIds.has(i.id));
   const totalRemaining = visibleMain.length + visibleBacklog.length;
 
-  const shownMain = visibleMain.filter(matchesLoc);
-  const shownBacklog = visibleBacklog.filter(matchesLoc);
-  const shownTimedGoals = timedGoals.filter(matchesLoc);
-  const shownHabits = habits.filter(matchesLoc);
-  const shownCompleted = completedToday.filter(matchesLoc);
+  const shownMain = visibleMain.filter(matchesCat);
+  const shownBacklog = visibleBacklog.filter(matchesCat);
+  const shownTimedGoals = timedGoals.filter(matchesCat);
+  const shownHabits = habits.filter(matchesCat);
+  const shownCompleted = completedToday.filter(matchesCat);
 
   const handleComplete = (taskId) => {
     setCompletedIds(prev => new Set([...prev, taskId]));
@@ -125,8 +125,8 @@ export default function TodayScreen() {
 
   const isEmpty = totalRemaining === 0 && timedGoals.length === 0 && habits.length === 0;
 
-  const filterActive = filterLocId != null;
-  const filterName = locations.find(l => l.id === filterLocId)?.name ?? '';
+  const filterActive = filterCatId != null;
+  const filterName = categories.find(c => c.id === filterCatId)?.name ?? '';
   const filteredEmpty = filterActive &&
     shownMain.length === 0 && shownBacklog.length === 0 &&
     shownTimedGoals.length === 0 && shownHabits.length === 0;
@@ -152,31 +152,31 @@ export default function TodayScreen() {
           <Text style={styles.dateText}>{today}</Text>
         </View>
 
-        {/* Location filter chips — an active (highlighted) chip is the signal
+        {/* Category filter chips — an active (highlighted) chip is the signal
             that the list is scoped, so a filter is never silently on. */}
-        {locations.length > 0 && (
+        {categories.length > 0 && (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.filterRow}
           >
             <TouchableOpacity
-              style={[styles.filterChip, filterLocId == null && styles.filterChipAllActive]}
+              style={[styles.filterChip, filterCatId == null && styles.filterChipAllActive]}
               onPress={() => selectFilter(null)}
               activeOpacity={0.7}
             >
-              <Text style={[styles.filterChipText, filterLocId == null && styles.filterChipTextActive]}>All</Text>
+              <Text style={[styles.filterChipText, filterCatId == null && styles.filterChipTextActive]}>All</Text>
             </TouchableOpacity>
-            {locations.map(loc => {
-              const active = filterLocId === loc.id;
+            {categories.map(cat => {
+              const active = filterCatId === cat.id;
               return (
                 <TouchableOpacity
-                  key={loc.id}
-                  style={[styles.filterChip, active && { backgroundColor: loc.color, borderColor: loc.color }]}
-                  onPress={() => selectFilter(loc.id)}
+                  key={cat.id}
+                  style={[styles.filterChip, active && { backgroundColor: cat.color, borderColor: cat.color }]}
+                  onPress={() => selectFilter(cat.id)}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{loc.name}</Text>
+                  <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{cat.name}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -202,7 +202,7 @@ export default function TodayScreen() {
           </View>
         )}
 
-        {/* Filtered-empty — tasks exist, just none for this location. Never a
+        {/* Filtered-empty — tasks exist, just none in this category. Never a
             blank screen that reads as "the app lost my tasks". */}
         {filteredEmpty && !loading && (
           <View style={styles.emptyState}>

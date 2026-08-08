@@ -114,7 +114,7 @@ export default function SettingsScreen() {
   const handleImport = () => {
     Alert.alert(
       'Import Backup',
-      'This will replace ALL current tasks, locations, and settings with the backup file. This cannot be undone.',
+      'This will replace ALL current tasks, categories, and settings with the backup file. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -254,13 +254,13 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteCat = (cat) => {
-    Alert.alert('Delete Location', `Delete "${cat.name}"?`, [
+    Alert.alert('Delete Category', `Delete "${cat.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => { deleteCategory(cat.id); refresh(); } },
     ]);
   };
 
-  // The location editor is a plain in-screen overlay (not an RN <Modal>), so the
+  // The category editor is a plain in-screen overlay (not an RN <Modal>), so the
   // hardware back button isn't handled for us — wire it up manually to close it.
   useEffect(() => {
     if (!catModalVisible) return;
@@ -377,9 +377,9 @@ export default function SettingsScreen() {
         />
       </View>
 
-      {/* ── Locations ── */}
-      <Text style={[styles.sectionHeader, styles.sectionSpacing]}>Locations</Text>
-      <Text style={styles.sectionDesc}>Tag tasks by where you can do them, then filter your day by location on the Today screen.</Text>
+      {/* ── Categories ── */}
+      <Text style={[styles.sectionHeader, styles.sectionSpacing]}>Categories</Text>
+      <Text style={styles.sectionDesc}>Organize your tasks by life area, then filter or group your day by category.</Text>
 
       {categories.map(cat => (
         <View key={cat.id} style={styles.catRow}>
@@ -394,7 +394,7 @@ export default function SettingsScreen() {
         </View>
       ))}
       <TouchableOpacity style={styles.addCatBtn} onPress={openAdd}>
-        <Text style={styles.addCatBtnText}>+ Add Location</Text>
+        <Text style={styles.addCatBtnText}>+ Add Category</Text>
       </TouchableOpacity>
 
       {/* ── Backup & Restore ── */}
@@ -502,7 +502,7 @@ export default function SettingsScreen() {
         </Text>
       </View>
 
-      {/* Location editor overlay lives OUTSIDE the ScrollView — see after it. */}
+      {/* Category editor overlay lives OUTSIDE the ScrollView — see after it. */}
 
       {/* Restore-from-list modal (no TextInput, so no KeyboardAvoidingView needed) */}
       <Modal visible={restoreVisible} transparent animationType="slide" onRequestClose={() => setRestoreVisible(false)}>
@@ -545,7 +545,7 @@ export default function SettingsScreen() {
       </Modal>
     </ScrollView>
 
-    {/* Location editor as an in-screen OVERLAY, not an RN <Modal>. On the new
+    {/* Category editor as an in-screen OVERLAY, not an RN <Modal>. On the new
         architecture a transparent <Modal> could leave a stuck, flickering ghost
         window on Android that prop/mount tweaks never fixed; a plain absolutely-
         positioned View has no separate native window, so it can't ghost. It's a
@@ -557,13 +557,13 @@ export default function SettingsScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>{editingCat ? 'Edit Location' : 'New Location'}</Text>
+            <Text style={styles.modalTitle}>{editingCat ? 'Edit Category' : 'New Category'}</Text>
             <Text style={styles.fieldLabel}>Name</Text>
             <TextInput
               style={styles.input}
               value={catName}
               onChangeText={setCatName}
-              placeholder="e.g. Home"
+              placeholder="e.g. Health"
               placeholderTextColor="#aaa"
               autoFocus
             />
