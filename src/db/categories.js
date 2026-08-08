@@ -25,5 +25,12 @@ export function updateCategory(id, fields) {
 
 export function deleteCategory(id) {
   const db = getDb();
+  // Untag affected tasks EXPLICITLY. tasks.category_id declares
+  // `REFERENCES categories(id) ON DELETE SET NULL`, but that never fires: the
+  // app never runs `PRAGMA foreign_keys = ON` and SQLite leaves enforcement off
+  // by default. Without this, deleting a category strands tasks pointing at a
+  // row that no longer exists, and a stranded task is *hidden* by any active
+  // category filter (its id matches nothing).
+  db.runSync('UPDATE tasks SET category_id = NULL WHERE category_id = ?', [id]);
   db.runSync('DELETE FROM categories WHERE id = ?', [id]);
 }

@@ -30,6 +30,21 @@ function initDbSync(db) {
       sort_order INTEGER NOT NULL DEFAULT 0
     );
 
+    -- Locations are the second, orthogonal tagging axis: *where/how* you can
+    -- act (Home, Office, Errands, Phone) as opposed to a category's *life
+    -- domain* (Health, Work). Deliberately a separate table rather than a
+    -- "kind" column on categories — the two axes are independent and may
+    -- diverge. Shape mirrors categories so the UI/data layers can mirror too.
+    -- This statement is inside the always-run init block (IF NOT EXISTS), so
+    -- existing installs pick the table up on their next launch.
+    CREATE TABLE IF NOT EXISTS locations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT '#4a90d9',
+      icon TEXT NOT NULL DEFAULT 'pin',
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
@@ -159,6 +174,15 @@ function initDbSync(db) {
     // on Today showing its result until the user dismisses it; then this → 1
     // and the scheduler drops it from the list.
     `ALTER TABLE tasks ADD COLUMN streak_dismissed INTEGER NOT NULL DEFAULT 0`,
+    // ── Location axis ─────────────────────────────────────────────────────
+    // Where/how the task can be done, independent of its category. null =
+    // untagged ("Anywhere"), which every filter treats as always-visible.
+    // NOTE: the REFERENCES clause is documentation only — this app never runs
+    // `PRAGMA foreign_keys = ON`, and SQLite leaves enforcement off by default,
+    // so ON DELETE SET NULL does NOT fire. deleteLocation() clears the column
+    // itself (see src/db/locations.js); the UI also treats an unknown id as
+    // untagged, so a stale reference can never hide a task.
+    `ALTER TABLE tasks ADD COLUMN location_id INTEGER REFERENCES locations(id) ON DELETE SET NULL`,
   ];
   for (const sql of migrations) {
     try { db.execSync(sql); } catch (_) { /* column already exists */ }
@@ -178,6 +202,22 @@ function initDbSync(db) {
         ('Relationships', '#9b59b6', 'people', 2),
         ('Work', '#2980b9', 'briefcase', 3),
         ('Personal', '#27ae60', 'person', 4);
+    `);
+  }
+
+  // Seed default locations if none exist.
+  // We do NOT seed an "Anywhere" location on purpose: a task doable anywhere is
+  // left untagged (null location_id), which every filter always shows. A real
+  // "Anywhere" row would instead be hidden whenever you filtered to some other
+  // location — the exact opposite of what the name promises.
+  const locCount = db.getFirstSync('SELECT COUNT(*) as n FROM locations');
+  if (locCount.n === 0) {
+    db.execSync(`
+      INSERT INTO locations (name, color, icon, sort_order) VALUES
+        ('Home', '#27ae60', 'home', 0),
+        ('Office', '#2980b9', 'briefcase', 1),
+        ('Errands', '#f39c12', 'cart', 2),
+        ('Phone', '#9b59b6', 'call', 3);
     `);
   }
 }
