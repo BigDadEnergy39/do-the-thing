@@ -111,13 +111,44 @@ as the app being broken — even once. "Self-consistent UTC" is not an acceptabl
 
 ## Run commands
 ```
-npm install --legacy-peer-deps
+npm ci --legacy-peer-deps
 npx expo run:android
 ```
 Requires Android device or emulator connected via USB or an Android emulator running.
 `expo run:android` compiles the native Android code locally (bare workflow — no Expo Go).
 First run takes longer; subsequent runs are incremental.
 Read versioned Expo docs at https://docs.expo.dev/versions/v56.0.0/ before writing any code.
+
+### `npm ci` for setup, `npm install` only to change dependencies
+`npm ci` installs strictly from `package-lock.json` and **never writes** to it, so setup can't
+dirty the working tree. It's also the exact command the F-Droid recipe runs (`init:
+npm ci --legacy-peer-deps`), so a local setup reproduces the release build's dependency tree.
+Reserve `npm install --legacy-peer-deps` for when you're intentionally adding/updating a
+dependency — that's the only time the lockfile should change, and the change should be
+reviewed and committed with the `package.json` edit that caused it.
+
+**`--legacy-peer-deps` is required, not optional.** Dropping it makes npm auto-install peer
+dependencies, producing a tree ~26 packages larger (`react-native-reanimated`,
+`react-native-gesture-handler`, `react-dom`, `@types/react`, `@testing-library/dom`,
+`@react-native/babel-preset`, …). None are used: there is no `babel.config.js` or
+`metro.config.js` — Expo 56 supplies its own bundling toolchain — and the shipped APK builds
+without them. The flag must match the F-Droid recipe on every install.
+
+**Why the lockfile carries no `"peer": true` entries.** It previously held 26 of them, left
+over from a plain `npm install` (no flag). Under `--legacy-peer-deps` those entries are inert
+metadata — npm skips them — so `npm ci --legacy-peer-deps` installed the *same* 561 packages
+either way, but any `npm install --legacy-peer-deps` would strip them and leave a 386-line
+dirty diff. They were removed (v1.2.1) so the lockfile honestly describes the tree both a
+developer and the F-Droid buildserver actually get. Verified before committing: the install
+sets from the old and new lockfiles are byte-for-byte identical, and re-running the install
+command now produces no diff. If `"peer": true` reappears, someone ran `npm install` without
+the flag — re-run it with `--legacy-peer-deps` rather than committing the churn.
+
+**Keep the lockfile's `version` in lockstep too.** `package-lock.json` has its own `version`
+field (twice: top level and `packages[""]`) that must track `package.json` / `app.json` /
+`build.gradle`. npm syncs it automatically on any `npm install`, but `npm ci` does not — so
+when bumping a release, edit it as part of the version bump. It silently sat at `1.1.0`
+through the entire 1.2.x line.
 
 ## Notifications
 Uses `react-native-notify-kit` for fully local scheduled notifications — no Firebase/FCM dependency.
