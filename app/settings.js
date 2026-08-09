@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { getAllCategories, createCategory, updateCategory, deleteCategory } from '../src/db/categories';
+import { getAllLocations, createLocation, updateLocation, deleteLocation } from '../src/db/locations';
 import { TimePickerField } from '../src/components/TimePickerField';
 import { useRouter } from 'expo-router';
 import { getSetting, setSetting, getAllSettings } from '../src/db/settings';
@@ -40,6 +41,11 @@ export default function SettingsScreen() {
   const [editingCat, setEditingCat] = useState(null);
   const [catName, setCatName] = useState('');
   const [catColor, setCatColor] = useState(PRESET_COLORS[0]);
+  const [locations, setLocations] = useState([]);
+  const [locModalVisible, setLocModalVisible] = useState(false);
+  const [editingLoc, setEditingLoc] = useState(null);
+  const [locName, setLocName] = useState('');
+  const [locColor, setLocColor] = useState(PRESET_COLORS[0]);
   const [lastBackup, setLastBackup] = useState(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const [durableStatus, setDurableStatus] = useState({ uri: null, name: null, lastSuccess: null, stale: false });
@@ -49,6 +55,7 @@ export default function SettingsScreen() {
 
   const refresh = () => {
     setCategories(getAllCategories());
+    setLocations(getAllLocations());
     setSettings(getAllSettings());
     getLastAutoBackupInfo().then(setLastBackup).catch(() => {});
     setDurableStatus(getDurableBackupStatus());
@@ -114,7 +121,7 @@ export default function SettingsScreen() {
   const handleImport = () => {
     Alert.alert(
       'Import Backup',
-      'This will replace ALL current tasks, categories, and settings with the backup file. This cannot be undone.',
+      'This will replace ALL current tasks, categories, locations, and settings with the backup file. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -271,6 +278,43 @@ export default function SettingsScreen() {
     return () => sub.remove();
   }, [catModalVisible]);
 
+  // Location handlers — deliberately a mirror of the category ones above. The two
+  // axes are independent, so they get their own state and their own editor rather
+  // than a shared generic one (see the "two parallel implementations" decision).
+  const openAddLoc = () => { setEditingLoc(null); setLocName(''); setLocColor(PRESET_COLORS[0]); setLocModalVisible(true); };
+  const openEditLoc = (loc) => { setEditingLoc(loc); setLocName(loc.name); setLocColor(loc.color); setLocModalVisible(true); };
+
+  const closeLocModal = () => {
+    Keyboard.dismiss();
+    setLocModalVisible(false);
+  };
+
+  const handleSaveLoc = () => {
+    if (!locName.trim()) return;
+    if (editingLoc) updateLocation(editingLoc.id, { name: locName.trim(), color: locColor });
+    else createLocation(locName.trim(), locColor);
+    closeLocModal();
+    refresh();
+  };
+
+  const handleDeleteLoc = (loc) => {
+    // deleteLocation also clears location_id on any task using it — foreign keys
+    // are off in this app, so ON DELETE SET NULL never fires. See src/db/locations.js.
+    Alert.alert('Delete Location', `Delete "${loc.name}"?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => { deleteLocation(loc.id); refresh(); } },
+    ]);
+  };
+
+  useEffect(() => {
+    if (!locModalVisible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeLocModal();
+      return true;
+    });
+    return () => sub.remove();
+  }, [locModalVisible]);
+
   const intensity = parseInt(settings.notification_intensity ?? '3', 10);
   const persona = settings.coach_persona ?? 'coach';
 
@@ -395,6 +439,26 @@ export default function SettingsScreen() {
       ))}
       <TouchableOpacity style={styles.addCatBtn} onPress={openAdd}>
         <Text style={styles.addCatBtnText}>+ Add Category</Text>
+      </TouchableOpacity>
+
+      {/* ── Locations ── */}
+      <Text style={[styles.sectionHeader, styles.sectionSpacing]}>Locations</Text>
+      <Text style={styles.sectionDesc}>Tag tasks by where or how you can do them, then filter or group your day by location.</Text>
+
+      {locations.map(loc => (
+        <View key={loc.id} style={styles.catRow}>
+          <View style={[styles.catDot, { backgroundColor: loc.color }]} />
+          <Text style={styles.catName}>{loc.name}</Text>
+          <TouchableOpacity onPress={() => openEditLoc(loc)} style={styles.catAction}>
+            <Text style={styles.catActionText}>Edit</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => handleDeleteLoc(loc)} style={styles.catAction}>
+            <Text style={[styles.catActionText, { color: '#e74c3c' }]}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      ))}
+      <TouchableOpacity style={styles.addCatBtn} onPress={openAddLoc}>
+        <Text style={styles.addCatBtnText}>+ Add Location</Text>
       </TouchableOpacity>
 
       {/* ── Backup & Restore ── */}
@@ -581,6 +645,47 @@ export default function SettingsScreen() {
               <Text style={styles.saveBtnText}>{editingCat ? 'Save' : 'Add'}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelBtn} onPress={closeCatModal}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    )}
+
+    {/* Location editor — same in-screen overlay treatment as the category editor
+        above, and for the same reason: it holds an autoFocus TextInput, which is
+        exactly the case that ghosts inside a transparent RN <Modal> on Fabric. */}
+    {locModalVisible && (
+      <KeyboardAvoidingView
+        style={StyleSheet.absoluteFill}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>{editingLoc ? 'Edit Location' : 'New Location'}</Text>
+            <Text style={styles.fieldLabel}>Name</Text>
+            <TextInput
+              style={styles.input}
+              value={locName}
+              onChangeText={setLocName}
+              placeholder="e.g. Home"
+              placeholderTextColor="#aaa"
+              autoFocus
+            />
+            <Text style={styles.fieldLabel}>Color</Text>
+            <View style={styles.colorRow}>
+              {PRESET_COLORS.map(c => (
+                <TouchableOpacity
+                  key={c}
+                  style={[styles.colorSwatch, { backgroundColor: c }, locColor === c && styles.colorSwatchSelected]}
+                  onPress={() => setLocColor(c)}
+                />
+              ))}
+            </View>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveLoc}>
+              <Text style={styles.saveBtnText}>{editingLoc ? 'Save' : 'Add'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={closeLocModal}>
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
