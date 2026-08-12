@@ -47,11 +47,14 @@ const SET_LAST_SUCCESS = 'backup_folder_last_success';
 const MAX_BACKUP_BYTES = 50 * 1024 * 1024;
 // Tables restore may touch — also gates the table name interpolated into SQL
 // (defence in depth; call sites are already hardcoded).
-const RESTORE_TABLES = new Set(['categories', 'tasks', 'completions', 'timed_sessions', 'habit_checkins', 'settings']);
+const RESTORE_TABLES = new Set(['categories', 'locations', 'tasks', 'completions', 'timed_sessions', 'habit_checkins', 'settings']);
 // A column name must look like a plain SQL identifier before it is interpolated.
 const SAFE_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // Table keys as they appear in a backup's `data` object (camelCase), for validation.
-const DATA_KEYS = ['categories', 'tasks', 'completions', 'timedSessions', 'habitCheckins', 'settings'];
+// `locations` is newer than the others: backups written before the Location axis
+// existed simply omit the key, which validateBackup treats as absent (not
+// invalid), so older backup files still restore cleanly.
+const DATA_KEYS = ['categories', 'locations', 'tasks', 'completions', 'timedSessions', 'habitCheckins', 'settings'];
 
 // ─── Core serialise / deserialise ────────────────────────────────────────────
 
@@ -59,6 +62,7 @@ export function exportBackup() {
   const db = getDb();
 
   const categories    = db.getAllSync('SELECT * FROM categories');
+  const locations     = db.getAllSync('SELECT * FROM locations');
   const tasks         = db.getAllSync('SELECT * FROM tasks');
   const completions   = db.getAllSync('SELECT * FROM completions');
   const timedSessions = db.getAllSync('SELECT * FROM timed_sessions');
@@ -68,7 +72,7 @@ export function exportBackup() {
   return JSON.stringify({
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
-    data: { categories, tasks, completions, timedSessions, habitCheckins, settings },
+    data: { categories, locations, tasks, completions, timedSessions, habitCheckins, settings },
   }, null, 2);
 }
 
@@ -181,7 +185,7 @@ export function importBackup(jsonString) {
   const parsed = JSON.parse(jsonString);
   validateBackup(parsed);
 
-  const { categories, tasks, completions, timedSessions, habitCheckins, settings } = parsed.data;
+  const { categories, locations, tasks, completions, timedSessions, habitCheckins, settings } = parsed.data;
   const db = getDb();
 
   db.withTransactionSync(() => {
@@ -191,12 +195,14 @@ export function importBackup(jsonString) {
     db.runSync('DELETE FROM completions');
     db.runSync('DELETE FROM tasks');
     db.runSync('DELETE FROM categories');
+    db.runSync('DELETE FROM locations');
     db.runSync('DELETE FROM settings');
 
     // Restore in dependency order (parents before children). Every column is
     // mapped by name against the live schema — see restoreRows — so no column
     // is silently dropped and no phantom column breaks the insert.
     restoreRows(db, 'categories', categories);
+    restoreRows(db, 'locations', locations);
     restoreRows(db, 'tasks', tasks);
     restoreRows(db, 'completions', completions);
     restoreRows(db, 'timed_sessions', timedSessions);

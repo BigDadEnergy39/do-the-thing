@@ -1,11 +1,12 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   RefreshControl, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useDailyList } from '../src/hooks/useDailyList';
+import { useCategories } from '../src/hooks/useCategories';
 import { TaskCard } from '../src/components/TaskCard';
 import { TimedGoalCard } from '../src/components/TimedGoalCard';
 import { HabitCard } from '../src/components/HabitCard';
@@ -15,7 +16,7 @@ import { getSetting } from '../src/db/settings';
 import { getCoachText } from '../src/components/CoachText';
 import { CoachCard } from '../src/components/CoachCard';
 import { createTask, undoCompletion } from '../src/db/tasks';
-import { localDateTimeStr } from '../src/utils/date';
+import { localDateTimeStr, localDateStr } from '../src/utils/date';
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -28,12 +29,46 @@ export default function TodayScreen() {
   const [followUpTask, setFollowUpTask] = useState(null);
   const completePendingRef = useRef(null);
 
+  // ── Category filter (view-only) ──────────────────────────────────────────
+  const { categories } = useCategories();
+  const [filterCatId, setFilterCatId] = useState(null);
+  const filterDayRef = useRef(null);
+
+  // Auto-clear the filter on a new day so you can never wake up silently
+  // filtered and think tasks vanished. Cold start clears it too, since this is
+  // in-memory session state (the agreed "sticky within session" behavior).
+  useFocusEffect(useCallback(() => {
+    if (filterCatId != null && filterDayRef.current !== localDateStr()) {
+      setFilterCatId(null);
+    }
+  }, [filterCatId]));
+
+  const selectFilter = (id) => {
+    setFilterCatId(prev => {
+      const next = prev === id ? null : id;   // re-tapping the active chip clears
+      filterDayRef.current = next == null ? null : localDateStr();
+      return next;
+    });
+  };
+
+  // Keep tasks tagged with the selected category AND untagged tasks; hide only
+  // tasks tagged to a *different* category. Coach counts below stay on the
+  // UNFILTERED lists — filtering must never change what the coach reports
+  // (protects the wrap-up tier denominator).
+  const matchesCat = (t) => filterCatId == null || t.category_id == null || t.category_id === filterCatId;
+
   const persona = getSetting('coach_persona') ?? 'coach';
   const coach = getCoachText(persona);
 
   const visibleMain = mainItems.filter(i => !completedIds.has(i.id));
   const visibleBacklog = backlogItems.filter(i => !completedIds.has(i.id));
   const totalRemaining = visibleMain.length + visibleBacklog.length;
+
+  const shownMain = visibleMain.filter(matchesCat);
+  const shownBacklog = visibleBacklog.filter(matchesCat);
+  const shownTimedGoals = timedGoals.filter(matchesCat);
+  const shownHabits = habits.filter(matchesCat);
+  const shownCompleted = completedToday.filter(matchesCat);
 
   const handleComplete = (taskId) => {
     setCompletedIds(prev => new Set([...prev, taskId]));
@@ -90,6 +125,12 @@ export default function TodayScreen() {
 
   const isEmpty = totalRemaining === 0 && timedGoals.length === 0 && habits.length === 0;
 
+  const filterActive = filterCatId != null;
+  const filterName = categories.find(c => c.id === filterCatId)?.name ?? '';
+  const filteredEmpty = filterActive &&
+    shownMain.length === 0 && shownBacklog.length === 0 &&
+    shownTimedGoals.length === 0 && shownHabits.length === 0;
+
   const criticalTitles = visibleMain
     .filter(t => t.effectivePriority >= 4)
     .map(t => t.title);
@@ -111,6 +152,37 @@ export default function TodayScreen() {
           <Text style={styles.dateText}>{today}</Text>
         </View>
 
+        {/* Category filter chips — an active (highlighted) chip is the signal
+            that the list is scoped, so a filter is never silently on. */}
+        {categories.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterRow}
+          >
+            <TouchableOpacity
+              style={[styles.filterChip, filterCatId == null && styles.filterChipAllActive]}
+              onPress={() => selectFilter(null)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.filterChipText, filterCatId == null && styles.filterChipTextActive]}>All</Text>
+            </TouchableOpacity>
+            {categories.map(cat => {
+              const active = filterCatId === cat.id;
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[styles.filterChip, active && { backgroundColor: cat.color, borderColor: cat.color }]}
+                  onPress={() => selectFilter(cat.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{cat.name}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
+
         {/* Coach card — persona-driven, time-aware */}
         {!loading && (
           <CoachCard
@@ -122,16 +194,27 @@ export default function TodayScreen() {
           />
         )}
 
-        {/* Empty state */}
-        {isEmpty && !loading && (
+        {/* Empty state — genuinely nothing scheduled (only when unfiltered) */}
+        {isEmpty && !filterActive && !loading && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyEmoji}>✓</Text>
             <Text style={styles.emptyTitle}>{coach.allClear()}</Text>
           </View>
         )}
 
+        {/* Filtered-empty — tasks exist, just none in this category. Never a
+            blank screen that reads as "the app lost my tasks". */}
+        {filteredEmpty && !loading && (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>Nothing for {filterName} right now.</Text>
+            <TouchableOpacity style={styles.clearFilterBtn} onPress={() => selectFilter(null)} activeOpacity={0.7}>
+              <Text style={styles.clearFilterBtnText}>Show all tasks</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Main task list */}
-        {visibleMain.map(item => (
+        {shownMain.map(item => (
           item.has_timer
             ? <TimedGoalCard
                 key={item.id}
@@ -152,12 +235,12 @@ export default function TodayScreen() {
         ))}
 
         {/* Timed goals section */}
-        {timedGoals.length > 0 && (
+        {shownTimedGoals.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Goals</Text>
             </View>
-            {timedGoals.map(item => (
+            {shownTimedGoals.map(item => (
               <TimedGoalCard
                 key={item.id}
                 task={item}
@@ -168,12 +251,12 @@ export default function TodayScreen() {
         )}
 
         {/* Habits section */}
-        {habits.length > 0 && (
+        {shownHabits.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Habits</Text>
             </View>
-            {habits.map(item => (
+            {shownHabits.map(item => (
               <HabitCard
                 key={item.id}
                 task={item}
@@ -188,7 +271,7 @@ export default function TodayScreen() {
         )}
 
         {/* Backlog section */}
-        {visibleBacklog.length > 0 && (
+        {shownBacklog.length > 0 && (
           <View style={styles.section}>
             <TouchableOpacity
               style={styles.sectionHeader}
@@ -196,12 +279,12 @@ export default function TodayScreen() {
               activeOpacity={0.7}
             >
               <Text style={styles.sectionTitle}>Backlog</Text>
-              <Text style={styles.sectionCount}>{visibleBacklog.length}</Text>
+              <Text style={styles.sectionCount}>{shownBacklog.length}</Text>
               <Text style={styles.sectionChevron}>
                 {backlogExpanded ? '▲' : '▼'}
               </Text>
             </TouchableOpacity>
-            {backlogExpanded && visibleBacklog.map(item => (
+            {backlogExpanded && shownBacklog.map(item => (
               item.has_timer
                 ? <TimedGoalCard
                     key={item.id}
@@ -224,7 +307,7 @@ export default function TodayScreen() {
         )}
 
         {/* Completed today section */}
-        {completedToday.length > 0 && (
+        {shownCompleted.length > 0 && (
           <View style={styles.section}>
             <TouchableOpacity
               style={styles.sectionHeader}
@@ -232,10 +315,10 @@ export default function TodayScreen() {
               activeOpacity={0.7}
             >
               <Text style={styles.sectionTitle}>Completed</Text>
-              <Text style={styles.sectionCount}>{completedToday.length}</Text>
+              <Text style={styles.sectionCount}>{shownCompleted.length}</Text>
               <Text style={styles.sectionChevron}>{completedExpanded ? '▲' : '▼'}</Text>
             </TouchableOpacity>
-            {completedExpanded && completedToday.map(item => (
+            {completedExpanded && shownCompleted.map(item => (
               <View key={item.id} style={styles.completedRow}>
                 <TouchableOpacity
                   style={styles.completedMain}
@@ -346,6 +429,20 @@ const styles = StyleSheet.create({
   scrollContent: { paddingTop: 8 },
   header: { paddingHorizontal: 20, paddingBottom: 12 },
   dateText: { fontSize: 14, color: COLORS.subtext, marginBottom: 4 },
+  filterRow: { paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
+  filterChip: {
+    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff',
+  },
+  filterChipAllActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  filterChipText: { fontSize: 13, fontWeight: '600', color: COLORS.subtext },
+  filterChipTextActive: { color: '#fff' },
+  clearFilterBtn: {
+    marginTop: 14, paddingHorizontal: 18, paddingVertical: 10,
+    borderRadius: 12, backgroundColor: COLORS.primary + '15',
+    borderWidth: 1, borderColor: COLORS.primary + '30',
+  },
+  clearFilterBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.primary },
   coachNudge: { fontSize: 15, color: COLORS.text, fontWeight: '500', lineHeight: 22 },
   emptyState: { alignItems: 'center', paddingVertical: 60 },
   emptyEmoji: { fontSize: 48, marginBottom: 12, color: COLORS.success },

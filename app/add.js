@@ -12,6 +12,7 @@ import { advanceRandomizedTask } from '../src/engine/scheduler';
 import { describeRule, normalizeRule, upcomingOccurrences } from '../src/engine/recurrence';
 import { localDateStr, formatShortDate } from '../src/utils/date';
 import { getAllCategories } from '../src/db/categories';
+import { getAllLocations } from '../src/db/locations';
 import { COLORS, PRIORITY_COLORS, PRIORITY_LABELS } from '../src/components/theme';
 
 const TASK_TYPES = [
@@ -54,10 +55,14 @@ export default function AddTaskScreen() {
   const isEditing = !!editId;
 
   const [categories, setCategories] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [taskType, setTaskType] = useState('unscheduled');
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [categoryId, setCategoryId] = useState(null);
+  // Location is the second, independent axis (where/how you can act). A task may
+  // carry neither tag, either, or both — the two never constrain each other.
+  const [locationId, setLocationId] = useState(null);
   const [priority, setPriority] = useState(2);
   const [priorityCeiling, setPriorityCeiling] = useState(4);
   const [autoEscalateDays, setAutoEscalateDays] = useState('14');
@@ -112,11 +117,13 @@ export default function AddTaskScreen() {
   const [newReminderUnit, setNewReminderUnit] = useState('hours');
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
+  const [showLocModal, setShowLocModal] = useState(false);
   const [showHolidayModal, setShowHolidayModal] = useState(false);
   const [showMonthModal, setShowMonthModal] = useState(false);
 
   useEffect(() => {
     setCategories(getAllCategories());
+    setLocations(getAllLocations());
     if (editId) {
       const task = getTaskById(Number(editId));
       if (!task) return;
@@ -124,6 +131,7 @@ export default function AddTaskScreen() {
       setTitle(task.title);
       setNotes(task.notes ?? '');
       setCategoryId(task.category_id);
+      setLocationId(task.location_id);
       setPriority(task.base_priority);
       setPriorityCeiling(task.priority_ceiling ?? 4);
       setAutoEscalateDays(String(task.auto_escalate_days ?? 14));
@@ -199,6 +207,7 @@ export default function AddTaskScreen() {
 
   const selectedType = TASK_TYPES.find(t => t.key === taskType);
   const selectedCategory = categories.find(c => c.id === categoryId);
+  const selectedLocation = locations.find(l => l.id === locationId);
 
   const toggleRecurDay = (dow) => {
     setRecurDays(prev => prev.includes(dow) ? prev.filter(d => d !== dow) : [...prev, dow]);
@@ -398,6 +407,7 @@ export default function AddTaskScreen() {
       title: title.trim(),
       notes: notes.trim() || null,
       category_id: categoryId,
+      location_id: locationId,
       task_type: taskType,
       base_priority: taskType === 'habit' ? 2 : priority,
       priority_ceiling:
@@ -527,6 +537,12 @@ export default function AddTaskScreen() {
       <Text style={styles.label}>Category</Text>
       <TouchableOpacity style={styles.pickerBtn} onPress={() => setShowCatModal(true)}>
         <Text style={styles.pickerBtnTitle}>{selectedCategory?.name ?? 'None'}</Text>
+        <Text style={styles.chevron}>›</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.label}>Location</Text>
+      <TouchableOpacity style={styles.pickerBtn} onPress={() => setShowLocModal(true)}>
+        <Text style={styles.pickerBtnTitle}>{selectedLocation?.name ?? 'Anywhere'}</Text>
         <Text style={styles.chevron}>›</Text>
       </TouchableOpacity>
 
@@ -1247,6 +1263,28 @@ export default function AddTaskScreen() {
               </TouchableOpacity>
             ))}
             <TouchableOpacity style={styles.modalCancel} onPress={() => setShowCatModal(false)}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Location modal — deliberately identical to the Category modal above; the
+          two axes are independent but should feel like the same kind of control. */}
+      <Modal visible={showLocModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Location</Text>
+            <TouchableOpacity style={[styles.modalOption, !locationId && styles.modalOptionSelected]} onPress={() => { setLocationId(null); setShowLocModal(false); }}>
+              <Text style={styles.modalOptTitle}>Anywhere</Text>
+            </TouchableOpacity>
+            {locations.map(l => (
+              <TouchableOpacity key={l.id} style={[styles.modalOption, locationId === l.id && styles.modalOptionSelected]} onPress={() => { setLocationId(l.id); setShowLocModal(false); }}>
+                <View style={[styles.catDot, { backgroundColor: l.color }]} />
+                <Text style={styles.modalOptTitle}>{l.name}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.modalCancel} onPress={() => setShowLocModal(false)}>
               <Text style={styles.modalCancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>

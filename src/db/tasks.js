@@ -4,9 +4,12 @@ import { localDateStr } from '../utils/date';
 export function getAllTasks() {
   const db = getDb();
   return db.getAllSync(`
-    SELECT t.*, c.name as category_name, c.color as category_color, c.icon as category_icon
+    SELECT t.*,
+           c.name as category_name, c.color as category_color, c.icon as category_icon,
+           l.name as location_name, l.color as location_color, l.icon as location_icon
     FROM tasks t
     LEFT JOIN categories c ON t.category_id = c.id
+    LEFT JOIN locations l ON t.location_id = l.id
     WHERE t.is_active = 1
     ORDER BY t.base_priority DESC, t.title ASC
   `);
@@ -15,9 +18,12 @@ export function getAllTasks() {
 export function getTaskById(id) {
   const db = getDb();
   return db.getFirstSync(`
-    SELECT t.*, c.name as category_name, c.color as category_color
+    SELECT t.*,
+           c.name as category_name, c.color as category_color,
+           l.name as location_name, l.color as location_color
     FROM tasks t
     LEFT JOIN categories c ON t.category_id = c.id
+    LEFT JOIN locations l ON t.location_id = l.id
     WHERE t.id = ?
   `, [id]);
 }
@@ -26,7 +32,7 @@ export function createTask(task) {
   const db = getDb();
   const result = db.runSync(
     `INSERT INTO tasks (
-      title, notes, category_id, task_type, base_priority, priority_ceiling,
+      title, notes, category_id, location_id, task_type, base_priority, priority_ceiling,
       due_date, due_time, escalate_days_out, escalate_to_priority,
       recur_rule, recur_persistent, recur_display_overdue, recur_anchor, recur_escalate_days,
       rand_min_days, rand_max_days, rand_persistent, rand_next_date,
@@ -35,11 +41,12 @@ export function createTask(task) {
       notification_config, auto_escalate_days, auto_hide_after_skips,
       has_timer, duration_intent, preferred_time, habit_window, snooze_until, anchor_nth_rule, due_reminders,
       streak_target, streak_mode, streak_success, streak_started_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       task.title,
       task.notes ?? null,
       task.category_id ?? null,
+      task.location_id ?? null,
       task.task_type ?? 'unscheduled',
       task.base_priority ?? 2,
       task.priority_ceiling ?? 4,
@@ -83,7 +90,7 @@ export function createTask(task) {
 export function updateTask(id, fields) {
   const db = getDb();
   const allowed = [
-    'title','notes','category_id','base_priority','priority_ceiling',
+    'title','notes','category_id','location_id','base_priority','priority_ceiling',
     'due_date','due_time','escalate_days_out','escalate_to_priority',
     'recur_rule','recur_persistent','recur_display_overdue','recur_anchor','recur_escalate_days',
     'rand_min_days','rand_max_days','rand_persistent','rand_next_date',
@@ -255,11 +262,13 @@ export function getTodayCompletedTasks() {
   const db = getDb();
   const { start, end } = localDayBounds();
   return db.getAllSync(`
-    SELECT DISTINCT t.id, t.title, t.task_type, t.base_priority, t.category_id,
-      c.name as category_name
+    SELECT DISTINCT t.id, t.title, t.task_type, t.base_priority,
+      t.category_id, c.name as category_name,
+      t.location_id, l.name as location_name
     FROM completions co
     JOIN tasks t ON t.id = co.task_id
     LEFT JOIN categories c ON c.id = t.category_id
+    LEFT JOIN locations l ON l.id = t.location_id
     WHERE co.completed_at >= ? AND co.completed_at < ?
     ORDER BY co.completed_at DESC
   `, [start, end]);
