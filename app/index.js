@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useDailyList } from '../src/hooks/useDailyList';
 import { useCategories } from '../src/hooks/useCategories';
+import { useLocations } from '../src/hooks/useLocations';
 import { TaskCard } from '../src/components/TaskCard';
 import { TimedGoalCard } from '../src/components/TimedGoalCard';
 import { HabitCard } from '../src/components/HabitCard';
@@ -29,33 +30,64 @@ export default function TodayScreen() {
   const [followUpTask, setFollowUpTask] = useState(null);
   const completePendingRef = useRef(null);
 
-  // ── Category filter (view-only) ──────────────────────────────────────────
+  // ── Filter + organize (view-only) ────────────────────────────────────────
+  // Two independent axes: Category (life domain) and Location (where you can
+  // act). Either, both, or neither may be filtered, and the list may be grouped
+  // by one of them. Nothing here ever reorders: filtering HIDES, grouping
+  // BUCKETS, and the coach's band-sort order survives both untouched.
   const { categories } = useCategories();
+  const { locations } = useLocations();
   const [filterCatId, setFilterCatId] = useState(null);
-  const filterDayRef = useRef(null);
+  const [filterLocId, setFilterLocId] = useState(null);
+  // Grouping is ONE axis at a time, not nested — nested buckets would need a
+  // second heading level the app has no style for and would apply the
+  // untagged-at-the-bottom rule twice.
+  const [groupBy, setGroupBy] = useState('none');   // 'none' | 'category' | 'location'
+  const scopeDayRef = useRef(null);
 
-  // Auto-clear the filter on a new day so you can never wake up silently
-  // filtered and think tasks vanished. Cold start clears it too, since this is
-  // in-memory session state (the agreed "sticky within session" behavior).
+  const scopeActive = filterCatId != null || filterLocId != null || groupBy !== 'none';
+
+  // Auto-clear on a new day so you can never wake up silently scoped and think
+  // tasks vanished. Cold start clears it too, since this is in-memory session
+  // state. Grouping resets alongside the filters because that is what the
+  // forthcoming "Start each day clean" setting defaults to — step 6 makes this
+  // configurable rather than changing the behavior.
   useFocusEffect(useCallback(() => {
-    if (filterCatId != null && filterDayRef.current !== localDateStr()) {
+    if (scopeActive && scopeDayRef.current !== localDateStr()) {
       setFilterCatId(null);
+      setFilterLocId(null);
+      setGroupBy('none');
     }
-  }, [filterCatId]));
+  }, [scopeActive]));
 
-  const selectFilter = (id) => {
-    setFilterCatId(prev => {
-      const next = prev === id ? null : id;   // re-tapping the active chip clears
-      filterDayRef.current = next == null ? null : localDateStr();
-      return next;
-    });
+  // Any panel interaction stamps today, so the next day's first focus clears it.
+  const stampScopeDay = () => { scopeDayRef.current = localDateStr(); };
+
+  const selectCatFilter = (id) => {
+    setFilterCatId(prev => (prev === id ? null : id));  // re-tapping clears
+    stampScopeDay();
+  };
+  const selectLocFilter = (id) => {
+    setFilterLocId(prev => (prev === id ? null : id));
+    stampScopeDay();
+  };
+  const selectGroupBy = (mode) => { setGroupBy(mode); stampScopeDay(); };
+
+  const clearScope = () => {
+    setFilterCatId(null);
+    setFilterLocId(null);
+    setGroupBy('none');
+    stampScopeDay();
   };
 
-  // Keep tasks tagged with the selected category AND untagged tasks; hide only
-  // tasks tagged to a *different* category. Coach counts below stay on the
-  // UNFILTERED lists — filtering must never change what the coach reports
-  // (protects the wrap-up tier denominator).
-  const matchesCat = (t) => filterCatId == null || t.category_id == null || t.category_id === filterCatId;
+  // Keep tasks tagged with the selected value AND untagged tasks; hide only
+  // tasks tagged to a *different* value. Applied per axis, so filtering both at
+  // once narrows by both. Coach counts below stay on the UNFILTERED lists —
+  // filtering must never change what the coach reports (protects the wrap-up
+  // tier denominator).
+  const matchesFilters = (t) =>
+    (filterCatId == null || t.category_id == null || t.category_id === filterCatId) &&
+    (filterLocId == null || t.location_id == null || t.location_id === filterLocId);
 
   const persona = getSetting('coach_persona') ?? 'coach';
   const coach = getCoachText(persona);
@@ -64,11 +96,11 @@ export default function TodayScreen() {
   const visibleBacklog = backlogItems.filter(i => !completedIds.has(i.id));
   const totalRemaining = visibleMain.length + visibleBacklog.length;
 
-  const shownMain = visibleMain.filter(matchesCat);
-  const shownBacklog = visibleBacklog.filter(matchesCat);
-  const shownTimedGoals = timedGoals.filter(matchesCat);
-  const shownHabits = habits.filter(matchesCat);
-  const shownCompleted = completedToday.filter(matchesCat);
+  const shownMain = visibleMain.filter(matchesFilters);
+  const shownBacklog = visibleBacklog.filter(matchesFilters);
+  const shownTimedGoals = timedGoals.filter(matchesFilters);
+  const shownHabits = habits.filter(matchesFilters);
+  const shownCompleted = completedToday.filter(matchesFilters);
 
   const handleComplete = (taskId) => {
     setCompletedIds(prev => new Set([...prev, taskId]));
@@ -125,8 +157,11 @@ export default function TodayScreen() {
 
   const isEmpty = totalRemaining === 0 && timedGoals.length === 0 && habits.length === 0;
 
-  const filterActive = filterCatId != null;
-  const filterName = categories.find(c => c.id === filterCatId)?.name ?? '';
+  const filterActive = filterCatId != null || filterLocId != null;
+  const filterCatName = categories.find(c => c.id === filterCatId)?.name ?? '';
+  const filterLocName = locations.find(l => l.id === filterLocId)?.name ?? '';
+  // Reads "Office", "Health", or "Health · Office" when both axes are filtered.
+  const filterName = [filterCatName, filterLocName].filter(Boolean).join(' · ');
   const filteredEmpty = filterActive &&
     shownMain.length === 0 && shownBacklog.length === 0 &&
     shownTimedGoals.length === 0 && shownHabits.length === 0;
@@ -162,7 +197,7 @@ export default function TodayScreen() {
           >
             <TouchableOpacity
               style={[styles.filterChip, filterCatId == null && styles.filterChipAllActive]}
-              onPress={() => selectFilter(null)}
+              onPress={() => selectCatFilter(null)}
               activeOpacity={0.7}
             >
               <Text style={[styles.filterChipText, filterCatId == null && styles.filterChipTextActive]}>All</Text>
@@ -173,7 +208,7 @@ export default function TodayScreen() {
                 <TouchableOpacity
                   key={cat.id}
                   style={[styles.filterChip, active && { backgroundColor: cat.color, borderColor: cat.color }]}
-                  onPress={() => selectFilter(cat.id)}
+                  onPress={() => selectCatFilter(cat.id)}
                   activeOpacity={0.7}
                 >
                   <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{cat.name}</Text>
@@ -207,7 +242,7 @@ export default function TodayScreen() {
         {filteredEmpty && !loading && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>Nothing for {filterName} right now.</Text>
-            <TouchableOpacity style={styles.clearFilterBtn} onPress={() => selectFilter(null)} activeOpacity={0.7}>
+            <TouchableOpacity style={styles.clearFilterBtn} onPress={clearScope} activeOpacity={0.7}>
               <Text style={styles.clearFilterBtnText}>Show all tasks</Text>
             </TouchableOpacity>
           </View>
