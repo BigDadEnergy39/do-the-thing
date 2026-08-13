@@ -513,7 +513,11 @@ export default function TodayScreen() {
           sits last inside the flex:1 container so it paints on top. Hardware
           back is wired manually above. */}
       {panelVisible && (
-        <View style={StyleSheet.absoluteFill}>
+        <View style={[StyleSheet.absoluteFill, styles.panelRoot]}>
+          {/* Backdrop flexes to fill everything above the sheet, rather than
+              being absolutely positioned — this mirrors the modalOverlay
+              structure already proven on the Settings editors, where the sheet
+              is a normal flex child at the bottom of a dimmed flex:1 parent. */}
           <TouchableOpacity
             style={styles.panelBackdrop}
             activeOpacity={1}
@@ -678,9 +682,14 @@ const styles = StyleSheet.create({
 
   // Panel — mirrors the modalOverlay/modalSheet look used in Settings and Add so
   // it reads as the same kind of surface.
-  panelBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#00000066' },
+  // On Android, `elevation` takes part in z-ordering INDEPENDENTLY of sibling
+  // order, so the elevated task cards and the elevation-6 FAB can paint over a
+  // later sibling that has no elevation of its own. The overlay therefore needs
+  // both an explicit zIndex and an elevation higher than anything beneath it —
+  // being last in the tree is not sufficient on its own.
+  panelRoot: { zIndex: 100, elevation: 100 },
+  panelBackdrop: { flex: 1, backgroundColor: '#00000066' },
   panelSheet: {
-    position: 'absolute', left: 0, right: 0, bottom: 0,
     backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 24, paddingBottom: 40,
   },
