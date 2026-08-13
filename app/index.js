@@ -114,6 +114,58 @@ export default function TodayScreen() {
   const shownHabits = habits.filter(matchesFilters);
   const shownCompleted = completedToday.filter(matchesFilters);
 
+  // Grouping partitions the ALREADY-SORTED list in place: we walk shownMain in
+  // its existing order and append. Nothing here sorts, which is what preserves
+  // the coach's band-sort order inside every bucket by construction rather than
+  // by care — see the "coach always owns sort" rule. Bucket order follows each
+  // tag's own sort_order (the same order Settings lists them in), with untagged
+  // LAST so nothing ever falls off the end unnoticed.
+  //
+  // Only this main list is bucketed ("Option A"); Goals, Habits, Backlog and
+  // Completed keep their own sections. Note the deliberate asymmetry with
+  // filtering, which applies to ALL sections — that is intended, not a bug.
+  const mainGroups = (() => {
+    if (groupBy === 'none') return null;
+    const tags  = groupBy === 'category' ? categories : locations;
+    const idKey = groupBy === 'category' ? 'category_id' : 'location_id';
+    const buckets = tags.map(t => ({ key: `tag-${t.id}`, label: t.name, color: t.color, items: [] }));
+    const untagged = {
+      key: 'untagged',
+      label: groupBy === 'category' ? 'Uncategorized' : 'No location',
+      color: null,
+      items: [],
+    };
+    const byId = new Map(tags.map((t, i) => [t.id, buckets[i]]));
+    for (const item of shownMain) {
+      // A task pointing at a deleted tag falls back to untagged rather than
+      // vanishing. Foreign keys are off in this app, so strays are possible.
+      const bucket = item[idKey] == null ? untagged : (byId.get(item[idKey]) ?? untagged);
+      bucket.items.push(item);
+    }
+    return [...buckets, untagged].filter(b => b.items.length > 0);
+  })();
+
+  // Shared by the grouped and ungrouped paths so the card rendering can't drift.
+  const renderCard = (item) => (
+    item.has_timer
+      ? <TimedGoalCard
+          key={item.id}
+          task={item}
+          onComplete={handleComplete}
+          onFollowUp={handleFollowUp}
+          onChanged={refresh}
+          onPress={(t) => router.push(`/task/${t.id}`)}
+        />
+      : <TaskCard
+          key={item.id}
+          task={item}
+          onComplete={handleComplete}
+          onFollowUp={handleFollowUp}
+          onChanged={refresh}
+          onPress={(t) => router.push(`/task/${t.id}`)}
+        />
+  );
+
   const handleComplete = (taskId) => {
     setCompletedIds(prev => new Set([...prev, taskId]));
     setTimeout(refresh, 400);
@@ -270,26 +322,21 @@ export default function TodayScreen() {
           </View>
         )}
 
-        {/* Main task list */}
-        {shownMain.map(item => (
-          item.has_timer
-            ? <TimedGoalCard
-                key={item.id}
-                task={item}
-                onComplete={handleComplete}
-                onFollowUp={handleFollowUp}
-                onChanged={refresh}
-                onPress={(t) => router.push(`/task/${t.id}`)}
-              />
-            : <TaskCard
-                key={item.id}
-                task={item}
-                onComplete={handleComplete}
-                onFollowUp={handleFollowUp}
-                onChanged={refresh}
-                onPress={(t) => router.push(`/task/${t.id}`)}
-              />
-        ))}
+        {/* Main task list — bucketed when grouping is on, otherwise flat. The
+            bucket headers reuse the same section chrome as Goals/Habits/Backlog
+            so grouping reads as the language the screen already speaks. */}
+        {mainGroups
+          ? mainGroups.map(group => (
+              <View key={group.key} style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  {group.color && <View style={[styles.groupDot, { backgroundColor: group.color }]} />}
+                  <Text style={styles.sectionTitle}>{group.label}</Text>
+                  <Text style={styles.groupCount}>{group.items.length}</Text>
+                </View>
+                {group.items.map(renderCard)}
+              </View>
+            ))
+          : shownMain.map(renderCard)}
 
         {/* Timed goals section */}
         {shownTimedGoals.length > 0 && (
@@ -610,6 +657,11 @@ const styles = StyleSheet.create({
   organizeBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   organizeIcon: { fontSize: 16, color: COLORS.subtext },
   organizeIconActive: { color: '#fff' },
+
+  // Grouping bucket headers — deliberately the same section chrome as
+  // Goals/Habits/Backlog, plus the tag's colour dot and a count.
+  groupDot: { width: 8, height: 8, borderRadius: 4 },
+  groupCount: { fontSize: 12, fontWeight: '700', color: COLORS.subtext },
 
   // Scope summary bar
   scopeBar: {
