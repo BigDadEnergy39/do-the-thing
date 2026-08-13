@@ -174,6 +174,14 @@ export default function TodayScreen() {
   const filterLocName = locations.find(l => l.id === filterLocId)?.name ?? '';
   // Reads "Office", "Health", or "Health · Office" when both axes are filtered.
   const filterName = [filterCatName, filterLocName].filter(Boolean).join(' · ');
+
+  // The summary line's text. Filters name themselves; grouping is spelled out so
+  // "Health" and "grouped by Category" can't be mistaken for the same kind of
+  // thing. Reads e.g. "Health · Office · grouped by Category".
+  const groupLabel = groupBy === 'none'
+    ? null
+    : `grouped by ${groupBy === 'category' ? 'Category' : 'Location'}`;
+  const scopeSummary = [filterCatName, filterLocName, groupLabel].filter(Boolean).join(' · ');
   const filteredEmpty = filterActive &&
     shownMain.length === 0 && shownBacklog.length === 0 &&
     shownTimedGoals.length === 0 && shownHabits.length === 0;
@@ -207,6 +215,30 @@ export default function TodayScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Scope summary — the guarantee that you are never silently scoped.
+            Shown for grouping too, even though grouping hides nothing: the panel
+            is one control, and a line that reflected only half its state would
+            confuse more than it clarified. Tapping it reopens the panel, since
+            the line is the natural place to fix what it reports. */}
+        {scopeActive && (
+          <View style={styles.scopeBar}>
+            <TouchableOpacity
+              style={styles.scopeBarLabel}
+              onPress={() => setPanelVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.scopeBarText} numberOfLines={1}>{scopeSummary}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={clearScope}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityLabel="Clear filter and grouping"
+            >
+              <Text style={styles.scopeBarClear}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Coach card — persona-driven, time-aware */}
         {!loading && (
@@ -578,6 +610,19 @@ const styles = StyleSheet.create({
   organizeBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   organizeIcon: { fontSize: 16, color: COLORS.subtext },
   organizeIconActive: { color: '#fff' },
+
+  // Scope summary bar
+  scopeBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginHorizontal: 20, marginBottom: 12,
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: COLORS.primary + '15',
+    borderWidth: 1, borderColor: COLORS.primary + '30',
+  },
+  scopeBarLabel: { flex: 1 },
+  scopeBarText: { fontSize: 13, fontWeight: '600', color: COLORS.primary },
+  scopeBarClear: { fontSize: 15, fontWeight: '700', color: COLORS.primary },
 
   // Panel — mirrors the modalOverlay/modalSheet look used in Settings and Add so
   // it reads as the same kind of surface.
