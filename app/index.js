@@ -1,7 +1,7 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  RefreshControl, Modal,
+  RefreshControl, Modal, BackHandler,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -79,6 +79,18 @@ export default function TodayScreen() {
     setGroupBy('none');
     stampScopeDay();
   };
+
+  // The panel is an in-screen overlay rather than an RN <Modal>, so hardware
+  // back isn't handled for us — wire it up manually.
+  const [panelVisible, setPanelVisible] = useState(false);
+  useEffect(() => {
+    if (!panelVisible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setPanelVisible(false);
+      return true;   // consume it, so back doesn't also leave the screen
+    });
+    return () => sub.remove();
+  }, [panelVisible]);
 
   // Keep tasks tagged with the selected value AND untagged tasks; hide only
   // tasks tagged to a *different* value. Applied per axis, so filtering both at
@@ -182,41 +194,19 @@ export default function TodayScreen() {
           <RefreshControl refreshing={loading} onRefresh={refresh} tintColor={COLORS.primary} />
         }
       >
-        {/* Date header */}
+        {/* Date header + the filter/organize affordance */}
         <View style={styles.header}>
           <Text style={styles.dateText}>{today}</Text>
+          <TouchableOpacity
+            style={[styles.organizeBtn, scopeActive && styles.organizeBtnActive]}
+            onPress={() => setPanelVisible(true)}
+            activeOpacity={0.7}
+            accessibilityLabel="Filter and organize today"
+          >
+            <Text style={[styles.organizeIcon, scopeActive && styles.organizeIconActive]}>☰</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Category filter chips — an active (highlighted) chip is the signal
-            that the list is scoped, so a filter is never silently on. */}
-        {categories.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterRow}
-          >
-            <TouchableOpacity
-              style={[styles.filterChip, filterCatId == null && styles.filterChipAllActive]}
-              onPress={() => selectCatFilter(null)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.filterChipText, filterCatId == null && styles.filterChipTextActive]}>All</Text>
-            </TouchableOpacity>
-            {categories.map(cat => {
-              const active = filterCatId === cat.id;
-              return (
-                <TouchableOpacity
-                  key={cat.id}
-                  style={[styles.filterChip, active && { backgroundColor: cat.color, borderColor: cat.color }]}
-                  onPress={() => selectCatFilter(cat.id)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{cat.name}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        )}
 
         {/* Coach card — persona-driven, time-aware */}
         {!loading && (
@@ -436,6 +426,115 @@ export default function TodayScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Filter & organize panel — a plain in-screen overlay, NOT an RN <Modal>.
+          A transparent Modal can leave a stuck, flickering ghost window on this
+          Fabric build that no prop or mount tweak fixed; an absolutely-
+          positioned View has no separate native window, so it can't ghost. It
+          sits last inside the flex:1 container so it paints on top. Hardware
+          back is wired manually above. */}
+      {panelVisible && (
+        <View style={StyleSheet.absoluteFill}>
+          <TouchableOpacity
+            style={styles.panelBackdrop}
+            activeOpacity={1}
+            onPress={() => setPanelVisible(false)}
+          />
+          <View style={styles.panelSheet}>
+            <Text style={styles.panelTitle}>Filter &amp; organize</Text>
+
+            {/* Filtering HIDES. Both axes are independent, so a category and a
+                location can be active at once. */}
+            <Text style={styles.panelLabel}>Filter</Text>
+
+            <Text style={styles.panelSubLabel}>Category</Text>
+            <View style={styles.panelChipWrap}>
+              <TouchableOpacity
+                style={[styles.filterChip, filterCatId == null && styles.filterChipAllActive]}
+                onPress={() => selectCatFilter(null)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.filterChipText, filterCatId == null && styles.filterChipTextActive]}>All</Text>
+              </TouchableOpacity>
+              {categories.map(cat => {
+                const active = filterCatId === cat.id;
+                return (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[styles.filterChip, active && { backgroundColor: cat.color, borderColor: cat.color }]}
+                    onPress={() => selectCatFilter(cat.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{cat.name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={styles.panelSubLabel}>Location</Text>
+            <View style={styles.panelChipWrap}>
+              <TouchableOpacity
+                style={[styles.filterChip, filterLocId == null && styles.filterChipAllActive]}
+                onPress={() => selectLocFilter(null)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.filterChipText, filterLocId == null && styles.filterChipTextActive]}>Anywhere</Text>
+              </TouchableOpacity>
+              {locations.map(loc => {
+                const active = filterLocId === loc.id;
+                return (
+                  <TouchableOpacity
+                    key={loc.id}
+                    style={[styles.filterChip, active && { backgroundColor: loc.color, borderColor: loc.color }]}
+                    onPress={() => selectLocFilter(loc.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{loc.name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Grouping BUCKETS — one axis at a time, never nested, and it never
+                reorders anything inside a bucket. */}
+            <Text style={styles.panelLabel}>Group by</Text>
+            <View style={styles.panelChipWrap}>
+              {[
+                { key: 'none',     label: 'None'     },
+                { key: 'category', label: 'Category' },
+                { key: 'location', label: 'Location' },
+              ].map(({ key, label }) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.filterChip, groupBy === key && styles.filterChipAllActive]}
+                  onPress={() => selectGroupBy(key)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.filterChipText, groupBy === key && styles.filterChipTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.panelActions}>
+              <TouchableOpacity
+                style={styles.panelClearBtn}
+                onPress={clearScope}
+                disabled={!scopeActive}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.panelClearText, !scopeActive && styles.panelClearTextOff]}>Clear all</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.panelDoneBtn}
+                onPress={() => setPanelVisible(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.panelDoneText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -462,9 +561,52 @@ const styles = StyleSheet.create({
 
   container: { flex: 1, backgroundColor: COLORS.background },
   scrollContent: { paddingTop: 8 },
-  header: { paddingHorizontal: 20, paddingBottom: 12 },
+  header: {
+    paddingHorizontal: 20, paddingBottom: 12,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
   dateText: { fontSize: 14, color: COLORS.subtext, marginBottom: 4 },
-  filterRow: { paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
+
+  // Filter/organize affordance. The active tint is the "you are scoped" signal
+  // that replaced the always-visible highlighted chip row — paired with the
+  // summary line, so a filter can never be silently on.
+  organizeBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff',
+  },
+  organizeBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  organizeIcon: { fontSize: 16, color: COLORS.subtext },
+  organizeIconActive: { color: '#fff' },
+
+  // Panel — mirrors the modalOverlay/modalSheet look used in Settings and Add so
+  // it reads as the same kind of surface.
+  panelBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#00000066' },
+  panelSheet: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 24, paddingBottom: 40,
+  },
+  panelTitle: { fontSize: 18, fontWeight: '700', color: COLORS.text, marginBottom: 8 },
+  panelLabel: {
+    fontSize: 13, fontWeight: '700', color: COLORS.text,
+    textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 18, marginBottom: 4,
+  },
+  panelSubLabel: { fontSize: 12, color: COLORS.subtext, marginTop: 10, marginBottom: 6 },
+  panelChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  panelActions: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginTop: 24,
+  },
+  panelClearBtn: { paddingVertical: 12, paddingRight: 16 },
+  panelClearText: { fontSize: 15, fontWeight: '600', color: COLORS.primary },
+  panelClearTextOff: { color: COLORS.border },
+  panelDoneBtn: {
+    paddingHorizontal: 28, paddingVertical: 12,
+    borderRadius: 12, backgroundColor: COLORS.primary,
+  },
+  panelDoneText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+
   filterChip: {
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16,
     borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#fff',
